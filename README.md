@@ -1,14 +1,39 @@
 # Port.io Manager
 
-A tool for managing Port.io resources through Infrastructure as Code. This tool allows you to manage Port.io resources (currently blueprints) using local JSON files, enabling version control and Infrastructure as Code practices.
+A professional Infrastructure as Code (IaC) tool for managing Port.io resources. This tool allows you to manage Port.io resources (currently blueprints) using local JSON files, enabling version control and GitOps practices.
 
 ## Features
 
-- Manage Port.io blueprints through JSON files
+### Core Functionality
+- Create and update Port.io blueprints from JSON files
 - Compare local and remote blueprint configurations
-- Create and update blueprints
 - Detect and warn about recent UI changes
 - Support for both single files and directories
+- Detailed change visualization
+- Comprehensive error reporting
+
+### CLI Features
+- Modern command-line interface with subcommands
+- Support for multiple input methods:
+  ```bash
+  # Process single file
+  port-io-manager sync-blueprint -f blueprint.json
+
+  # Process multiple files
+  port-io-manager sync-blueprint -f blueprint1.json,blueprint2.json
+
+  # Process entire directory
+  port-io-manager sync-blueprint -d blueprints/
+  ```
+- Force update option: `--force`
+- Non-interactive mode: `--no-prompt`
+
+### Professional Logging
+- Structured logging with metadata
+- Color-coded output for better readability
+- Detailed error messages with API response information
+- Clear change visualization
+- Progress tracking and operation status
 
 ## Installation
 
@@ -40,47 +65,109 @@ PORT_CLIENT_SECRET=your_client_secret
 
 ## Usage
 
-The tool can be used to process either a single JSON file or a directory containing multiple JSON files:
+### Basic Usage
 
+1. Create or update a single blueprint:
 ```bash
-# Process a single blueprint file
-port-io-manager path/to/blueprint.json
-
-# Process all JSON files in a directory
-port-io-manager path/to/blueprints/
-
-# Force update (ignore recent UI changes warning)
-port-io-manager path/to/blueprint.json --force
+port-io-manager sync-blueprint -f path/to/blueprint.json
 ```
 
-### JSON File Format
-
-Your blueprint JSON files should follow this structure:
-
-```json
-{
-    "identifier": "unique_blueprint_id",
-    "title": "Blueprint Title",
-    "icon": "Blueprint Icon",
-    "schema": {
-        "properties": {
-            // Blueprint properties
-        }
-    }
-    // Other blueprint configurations
-}
-```
-
-## Development
-
-To set up the development environment:
-
-1. Clone the repository
-2. Create a virtual environment
-3. Install development dependencies:
+2. Process multiple blueprints:
 ```bash
-pip install -e .
+port-io-manager sync-blueprint -f blueprint1.json,blueprint2.json
 ```
+
+3. Process all blueprints in a directory:
+```bash
+port-io-manager sync-blueprint -d path/to/blueprints/
+```
+
+### Advanced Options
+
+- Force update (ignore recent UI changes):
+```bash
+port-io-manager sync-blueprint -f blueprint.json --force
+```
+
+- Skip confirmation prompts:
+```bash
+port-io-manager sync-blueprint -d blueprints/ --no-prompt
+```
+
+### Example Output
+
+```
+[Port.io Manager] - 2024-03-14 10:30:15 - INFO - Starting synchronization of 2 blueprint(s)
+[Port.io Manager] - 2024-03-14 10:30:15 - INFO - Processing blueprint file: service.json
+[Port.io Manager] - 2024-03-14 10:30:15 - INFO - Found differences between local and remote blueprints:
+[Port.io Manager] - 2024-03-14 10:30:15 - INFO - Modified values:
+[Port.io Manager] - 2024-03-14 10:30:15 - INFO -   Field: blueprint['title']
+[Port.io Manager] - 2024-03-14 10:30:15 - INFO -     - Remote: ServiceOld
+[Port.io Manager] - 2024-03-14 10:30:15 - INFO -     + Local:  ServiceNew
+```
+
+## Project Structure
+
+```
+port_io_manager/
+├── api/                    # API interaction layer
+│   ├── client.py          # Base API client
+│   └── endpoints/         # Endpoint-specific clients
+├── core/                  # Business logic
+│   └── services.py       # Core services
+├── cli/                   # CLI interface
+│   └── commands.py       # CLI commands
+└── utils/                # Utilities
+    └── logger.py        # Logging configuration
+```
+
+## Architecture
+
+The project follows a clean, modular architecture:
+
+1. **API Layer** (`api/`):
+   - Base client with authentication and request handling
+   - Endpoint-specific clients for different Port.io resources
+   - Comprehensive error handling and reporting
+
+2. **Core Layer** (`core/`):
+   - Business logic for blueprint management
+   - Change detection and comparison
+   - File handling and validation
+
+3. **CLI Layer** (`cli/`):
+   - Command-line interface with subcommands
+   - Argument parsing and validation
+   - User interaction handling
+
+4. **Utils** (`utils/`):
+   - Professional logging with metadata
+   - Color-coded output
+   - Reusable utilities
+
+## Error Handling
+
+The tool provides detailed error information:
+
+- API errors with response details
+- Validation errors with specific fields
+- Configuration and file errors
+- Network and authentication issues
+
+## Future Enhancements
+
+- Support for additional Port.io resources
+- Git integration for change detection
+- Batch operations and rollback support
+- Extended validation capabilities
+- CI/CD pipeline integration
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Make your changes
+4. Submit a pull request
 
 ## License
 

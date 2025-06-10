@@ -1,0 +1,31 @@
+{
+    "identifier": "example_service",
+    "title": "Example Service",
+    "icon": "Service",
+    "schema": {
+        "properties": {
+            "name": {
+                "type": "string",
+                "title": "Name",
+                "description": "The name of the service"
+            },
+            "description": {
+                "type": "string",
+                "title": "Description",
+                "description": "A description of the service"
+            },
+            "team": {
+                "type": "string",
+                "title": "Team",
+                "description": "The team responsible for this service"
+            },
+            "status": {
+                "type": "string",
+                "title": "Status",
+                "enum": ["active", "deprecated", "in_development"],
+                "description": "Current status of the service"
+            }
+        },
+        "required": ["name", "team"]
+    }
+} 
