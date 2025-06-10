@@ -86,16 +86,17 @@ class PortAPIClient:
             # If response is not JSON, return raw text
             return f"{error.response.status_code} {error.response.reason}: {error.response.text}"
 
-    def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Any:
+    def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None, ignore_404: bool = False) -> Any:
         """Make a request to the Port.io API.
 
         Args:
             method: HTTP method to use
             endpoint: API endpoint to call
             data: Optional request payload
+            ignore_404: Whether to ignore 404 errors and return None instead
 
         Returns:
-            API response data
+            API response data or None if ignore_404=True and resource not found
 
         Raises:
             PortAPIConflictError: When a 409 Conflict occurs
@@ -108,6 +109,18 @@ class PortAPIClient:
                 logger.debug("Request payload: %s", json.dumps(data, indent=2))
             
             response = self._session.request(method, url, json=data)
+            
+            # Always log response payload for debugging
+            try:
+                response_data = response.json()
+                logger.debug("Response payload: %s", json.dumps(response_data, indent=2))
+            except ValueError:
+                logger.debug("Response payload (raw): %s", response.text)
+
+            # Handle 404 specially if requested
+            if ignore_404 and response.status_code == 404:
+                return None
+                
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError as e:
@@ -116,17 +129,16 @@ class PortAPIClient:
             except ValueError:
                 response_data = {'raw_text': e.response.text} if e.response else None
 
-            # Log the complete error information for debugging
+            # Log complete error information only in debug
             logger.debug("API Error Details:")
             logger.debug("URL: %s", url)
             logger.debug("Method: %s", method)
-            if data:
-                logger.debug("Request Data: %s", json.dumps(data, indent=2))
+            logger.debug("Response Status: %s", e.response.status_code)
+            logger.debug("Response Headers: %s", dict(e.response.headers))
             if response_data:
                 logger.debug("Response Data: %s", json.dumps(response_data, indent=2))
 
             error_details = self._extract_error_details(e)
-            logger.error("API request failed: %s", error_details)
             
             sanitized_data = None
             if data:
@@ -137,7 +149,9 @@ class PortAPIClient:
                     if field in sanitized_data:
                         sanitized_data[field] = '***REDACTED***'
             
-            if e.response.status_code == 409:
+            if ignore_404 and e.response.status_code == 404:
+                return None
+            elif e.response.status_code == 409:
                 raise PortAPIConflictError(
                     409,
                     error_details,
@@ -152,5 +166,4 @@ class PortAPIClient:
             )
         except requests.exceptions.RequestException as e:
             error_details = self._extract_error_details(e)
-            logger.error("API request failed: %s", error_details)
-            raise PortAPIError(500, error_details) 
+            raise PortAPIError(500, error_details)

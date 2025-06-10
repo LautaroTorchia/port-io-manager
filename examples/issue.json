@@ -1,0 +1,163 @@
+{
+    "identifier": "wizIssue",
+    "description": "This blueprint represents a wiz issue",
+    "title": "Wiz Issue",
+    "icon": "Alert",
+    "schema": {
+      "properties": {
+        "url": {
+          "type": "string",
+          "title": "Issue URL",
+          "format": "url",
+          "description": "the link to the issue"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string",
+          "enum": [
+            "OPEN",
+            "IN_PROGRESS",
+            "RESOLVED",
+            "REJECTED"
+          ],
+          "enumColors": {
+            "OPEN": "blue",
+            "IN_PROGRESS": "orange",
+            "RESOLVED": "green",
+            "REJECTED": "darkGray"
+          }
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string",
+          "enum": [
+            "INFORMATIONAL",
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CRITICAL"
+          ],
+          "enumColors": {
+            "INFORMATIONAL": "blue",
+            "LOW": "yellow",
+            "MEDIUM": "orange",
+            "HIGH": "red",
+            "CRITICAL": "red"
+          }
+        },
+        "vulnerabilityType": {
+          "title": "Vulnerability Type",
+          "type": "string"
+        },
+        "wizIssueID": {
+          "title": "Wiz Issue ID",
+          "type": "string"
+        },
+        "cloudResourceType": {
+          "title": "Cloud Resource Type",
+          "type": "string"
+        },
+        "resourceName": {
+          "title": "Resource Name",
+          "type": "string"
+        },
+        "cloudPlatform": {
+          "title": "Cloud Platform",
+          "type": "string"
+        },
+        "linkToResource": {
+          "title": "Link to Cloud Resource",
+          "type": "string",
+          "format": "url"
+        },
+        "cloudResourceID": {
+          "title": "Cloud Resource ID",
+          "type": "string"
+        },
+        "cloudRegion": {
+          "title": "Cloud Region",
+          "type": "string"
+        },
+        "resourceGroupExternalId": {
+          "title": "Resource Group External ID",
+          "type": "string"
+        },
+        "subscriptionExternalId": {
+          "title": "Subscription External ID",
+          "type": "string"
+        },
+        "subscriptionName": {
+          "title": "Subscription Name",
+          "type": "string"
+        },
+        "subscriptionTags": {
+          "title": "Subscription Tags",
+          "type": "object"
+        },
+        "resourceTags": {
+          "title": "Resource Tags",
+          "type": "object"
+        },
+        "vulnerability": {
+          "title": "Vulnerability",
+          "type": "object",
+          "description": "The identified security risk"
+        },
+        "notes": {
+          "title": "Notes",
+          "type": "array"
+        },
+        "createdAt": {
+          "title": "Created At",
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "title": "Updated At",
+          "type": "string",
+          "format": "date-time"
+        },
+        "dueAt": {
+          "title": "Due At",
+          "type": "string",
+          "format": "date-time"
+        },
+        "resolvedAt": {
+          "title": "Resolved At",
+          "type": "string",
+          "format": "date-time"
+        },
+        "statusChangedAt": {
+          "title": "Status ChangedAt",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": []
+    },
+    "mirrorProperties": {},
+    "calculationProperties": {},
+    "relations": {
+      "projects": {
+        "target": "wizProject",
+        "title": "Affected Projects",
+        "description": "The projects affected by this issue",
+        "required": false,
+        "many": true
+      },
+      "serviceTickets": {
+        "target": "wizServiceTicket",
+        "title": "Service Tickets",
+        "description": "The service tickets belonging to this issue",
+        "required": false,
+        "many": true
+      },
+      "control": {
+        "target": "wizControl",
+        "title": "Control",
+        "description": "The control that flagged this issue",
+        "required": false,
+        "many": false
+      }
+    }
+  }
