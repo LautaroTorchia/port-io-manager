@@ -2,6 +2,7 @@ import os
 import glob
 import logging
 import argparse
+import sys
 from typing import List
 from dotenv import load_dotenv
 from ..api.endpoints.blueprints import BlueprintClient
@@ -62,9 +63,10 @@ def sync_blueprint_command(args: argparse.Namespace) -> None:
     json_files = process_input_paths(args.files if args.files else args.directory)
     if not json_files:
         logger.error("No valid JSON files found to process")
-        return
+        sys.exit(1)
 
     logger.info("Starting synchronization of %d blueprint(s)", len(json_files))
+    
     for file_path in json_files:
         logger.info("-" * 50)
         service.process_blueprint_file(
@@ -75,6 +77,10 @@ def sync_blueprint_command(args: argparse.Namespace) -> None:
     
     logger.info("-" * 50)
     logger.info("Blueprint synchronization completed")
+    
+    if service.has_failures:
+        logger.error("Some blueprints failed to synchronize. Please check the logs above for details.")
+        sys.exit(1)
 
 def setup_sync_blueprint_parser(subparsers: argparse._SubParsersAction) -> None:
     """Set up the parser for the sync-blueprint command.

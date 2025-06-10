@@ -1,8 +1,9 @@
 import json
 import logging
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 from datetime import datetime, timezone
 from deepdiff import DeepDiff
+from ..api.client import PortAPIError, PortAPIConflictError
 from ..api.endpoints.blueprints import BlueprintClient
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ class BlueprintService:
             client: Initialized Port.io blueprint client
         """
         self.client = client
+        self.has_failures = False
 
     def load_blueprint_from_file(self, file_path: str) -> Optional[Dict]:
         """Load a blueprint definition from a JSON file.
@@ -33,9 +35,11 @@ class BlueprintService:
             return blueprint_data
         except json.JSONDecodeError:
             logger.error("Invalid JSON file: %s", file_path)
+            self.has_failures = True
             return None
         except FileNotFoundError:
             logger.error("File not found: %s", file_path)
+            self.has_failures = True
             return None
 
     def format_diff_for_display(self, diff: DeepDiff) -> Dict:
@@ -138,40 +142,64 @@ class BlueprintService:
             return False
         return True
 
-    def process_blueprint_file(self, file_path: str, force_update: bool = False, skip_confirmation: bool = False) -> None:
+    def process_blueprint_file(self, file_path: str, force_update: bool = False, skip_confirmation: bool = False) -> bool:
         """Process a blueprint file for synchronization with Port.io.
 
         Args:
             file_path: Path to the blueprint JSON file
             force_update: Whether to force update regardless of recent changes
             skip_confirmation: Whether to skip user confirmation prompts
+
+        Returns:
+            bool: True if the process was successful, False otherwise
         """
         logger.info("Processing blueprint file: %s", file_path)
         
         local_blueprint_data = self.load_blueprint_from_file(file_path)
         if not local_blueprint_data:
-            return
+            self.has_failures = True
+            return False
 
         blueprint_id = local_blueprint_data.get('identifier')
         if not blueprint_id:
             logger.error("Missing required 'identifier' field in blueprint: %s", file_path)
-            return
+            self.has_failures = True
+            return False
 
-        remote_blueprint = self.client.get_blueprint(blueprint_id)
+        try:
+            remote_blueprint = self.client.get_blueprint(blueprint_id)
 
-        if remote_blueprint:
-            diff = self.compare_blueprints(local_blueprint_data, remote_blueprint)
-            if not diff:
-                return
+            if remote_blueprint:
+                diff = self.compare_blueprints(local_blueprint_data, remote_blueprint)
+                if not diff:
+                    return True
 
-            if not self.check_recent_update(remote_blueprint, force_update) and not skip_confirmation:
-                user_input = input("Blueprint was recently updated in Port.io UI. Continue with update? (y/N): ")
-                if user_input.lower() != 'y':
-                    logger.info("Update cancelled by user for blueprint: %s", blueprint_id)
-                    return
-            
-            logger.info("Updating blueprint: %s", blueprint_id)
-            self.client.update_blueprint(blueprint_id, local_blueprint_data)
-        else:
-            logger.info("Creating new blueprint: %s", blueprint_id)
-            self.client.create_blueprint(local_blueprint_data) 
+                if not self.check_recent_update(remote_blueprint, force_update) and not skip_confirmation:
+                    user_input = input("Blueprint was recently updated in Port.io UI. Continue with update? (y/N): ")
+                    if user_input.lower() != 'y':
+                        logger.info("Update cancelled by user for blueprint: %s", blueprint_id)
+                        return True
+
+                logger.info("Updating blueprint: %s", blueprint_id)
+                self.client.update_blueprint(blueprint_id, local_blueprint_data)
+            else:
+                logger.warning("Blueprint not found: %s", blueprint_id)
+                logger.info("Creating new blueprint: %s", blueprint_id)
+                self.client.create_blueprint(local_blueprint_data)
+
+            return True
+
+        except PortAPIConflictError as e:
+            logger.error("Conflict error while processing blueprint %s: %s", blueprint_id, e.message)
+            if "already exists" in e.message.lower():
+                logger.error("A blueprint with identifier '%s' already exists. Please choose a different identifier.", blueprint_id)
+            self.has_failures = True
+            return False
+        except PortAPIError as e:
+            logger.error("API error while processing blueprint %s: %s", blueprint_id, e.message)
+            self.has_failures = True
+            return False
+        except Exception as e:
+            logger.error("Unexpected error while processing blueprint %s: %s", blueprint_id, str(e))
+            self.has_failures = True
+            return False 

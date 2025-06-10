@@ -6,6 +6,17 @@ from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+class PortAPIError(Exception):
+    """Base exception for Port.io API errors."""
+    def __init__(self, status_code: int, message: str):
+        self.status_code = status_code
+        self.message = message
+        super().__init__(self.message)
+
+class PortAPIConflictError(PortAPIError):
+    """Exception for 409 Conflict errors."""
+    pass
+
 class PortAPIClient:
     """Base client for interacting with the Port.io API."""
     
@@ -93,14 +104,25 @@ class PortAPIClient:
             data: Optional request payload
 
         Returns:
-            API response data or None if request failed
+            API response data
+
+        Raises:
+            PortAPIConflictError: When a 409 Conflict occurs
+            PortAPIError: When any other API error occurs
         """
         url = f"{self.BASE_URL}/{endpoint.lstrip('/')}"
         try:
             response = self._session.request(method, url, json=data)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.HTTPError as e:
+            error_details = self._extract_error_details(e)
+            logger.error("API request failed: %s", error_details)
+            
+            if e.response.status_code == 409:
+                raise PortAPIConflictError(409, error_details)
+            raise PortAPIError(e.response.status_code, error_details)
         except requests.exceptions.RequestException as e:
             error_details = self._extract_error_details(e)
             logger.error("API request failed: %s", error_details)
-            return None 
+            raise PortAPIError(500, error_details) 
