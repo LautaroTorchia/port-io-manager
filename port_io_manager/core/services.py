@@ -167,11 +167,17 @@ class BlueprintService:
             return False
 
         try:
-            remote_blueprint = self.client.get_blueprint(blueprint_id)
+            remote_blueprint = None
+            try:
+                remote_blueprint = self.client.get_blueprint(blueprint_id)
+            except PortAPIError as e:
+                if "404" not in str(e):
+                    raise
 
             if remote_blueprint:
                 diff = self.compare_blueprints(local_blueprint_data, remote_blueprint)
                 if not diff:
+                    logger.info("Blueprint '%s' is up to date", blueprint_id)
                     return True
 
                 if not self.check_recent_update(remote_blueprint, force_update) and not skip_confirmation:
@@ -180,14 +186,31 @@ class BlueprintService:
                         logger.info("Update cancelled by user for blueprint: %s", blueprint_id)
                         return True
 
-                logger.info("Updating blueprint: %s", blueprint_id)
-                self.client.update_blueprint(blueprint_id, local_blueprint_data)
-            else:
-                logger.warning("Blueprint not found: %s", blueprint_id)
-                logger.info("Creating new blueprint: %s", blueprint_id)
-                self.client.create_blueprint(local_blueprint_data)
+                try:
+                    logger.info("Updating blueprint: %s", blueprint_id)
+                    self.client.update_blueprint(blueprint_id, local_blueprint_data)
+                    logger.info("Successfully updated blueprint: %s", blueprint_id)
+                    return True
+                except PortAPIError as update_error:
+                    if "404" in str(update_error):
+                        logger.warning("Blueprint '%s' not found during update, attempting to create it", blueprint_id)
+                    else:
+                        raise update_error
 
-            return True
+            # If we get here, either:
+            # 1. The blueprint didn't exist
+            # 2. The update failed with 404
+            # In both cases, we try to create it
+            logger.info("Creating new blueprint: %s", blueprint_id)
+            try:
+                self.client.create_blueprint(local_blueprint_data)
+                logger.info("Successfully created blueprint: %s", blueprint_id)
+                return True
+            except PortAPIConflictError as create_error:
+                if "already exists" in str(create_error).lower():
+                    logger.error("Conflict: Blueprint '%s' already exists but couldn't be retrieved or updated", blueprint_id)
+                    logger.error("This might indicate an issue with Port.io API permissions or a race condition")
+                raise
 
         except PortAPIConflictError as e:
             logger.error("Conflict error while processing blueprint %s: %s", blueprint_id, e.message)

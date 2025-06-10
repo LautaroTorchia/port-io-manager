@@ -1,6 +1,7 @@
 import logging
 from typing import Optional, Dict, Any
 from ..client import PortAPIClient
+from ..exceptions import PortAPIError, PortAPIConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -25,30 +26,48 @@ class BlueprintClient(PortAPIClient):
 
         Returns:
             Blueprint data or None if not found
+
+        Raises:
+            PortAPIError: If there is an API error other than 404
         """
-        response = self._make_request('GET', f"{self.endpoint}/{blueprint_id}")
-        if response:
+        try:
+            response = self._make_request('GET', f"{self.endpoint}/{blueprint_id}")
             logger.info("Retrieved blueprint: %s", blueprint_id)
             return response.get("blueprint")
-        logger.warning("Blueprint not found: %s", blueprint_id)
-        return None
+        except PortAPIError as e:
+            if "404" in str(e):
+                logger.warning("Blueprint not found: %s", blueprint_id)
+                return None
+            logger.error("Failed to get blueprint %s:\n%s", blueprint_id, e.get_detailed_message())
+            raise
 
-    def create_blueprint(self, blueprint_data: Dict) -> Optional[Dict]:
+    def create_blueprint(self, blueprint_data: Dict) -> Dict:
         """Create a new blueprint.
 
         Args:
             blueprint_data: Blueprint definition data
 
         Returns:
-            Created blueprint data or None if creation failed
+            Created blueprint data
+
+        Raises:
+            PortAPIConflictError: If blueprint already exists
+            PortAPIError: If there is any other API error
         """
-        response = self._make_request('POST', self.endpoint, data=blueprint_data)
-        if response:
+        try:
+            response = self._make_request('POST', self.endpoint, data=blueprint_data)
             logger.info("Created blueprint: %s", blueprint_data.get('identifier'))
             return response
-        return None
+        except PortAPIConflictError as e:
+            logger.error("Failed to create blueprint %s - Already exists:\n%s", 
+                        blueprint_data.get('identifier'), e.get_detailed_message())
+            raise
+        except PortAPIError as e:
+            logger.error("Failed to create blueprint %s:\n%s", 
+                        blueprint_data.get('identifier'), e.get_detailed_message())
+            raise
 
-    def update_blueprint(self, blueprint_id: str, blueprint_data: Dict) -> Optional[Dict]:
+    def update_blueprint(self, blueprint_id: str, blueprint_data: Dict) -> Dict:
         """Update an existing blueprint.
 
         Args:
@@ -56,14 +75,24 @@ class BlueprintClient(PortAPIClient):
             blueprint_data: Updated blueprint definition data
 
         Returns:
-            Updated blueprint data or None if update failed
+            Updated blueprint data
+
+        Raises:
+            PortAPIError: If blueprint doesn't exist or any other API error occurs
         """
-        update_payload = self._prepare_update_payload(blueprint_data)
-        response = self._make_request('PUT', f"{self.endpoint}/{blueprint_id}", data=update_payload)
-        if response:
+        try:
+            update_payload = self._prepare_update_payload(blueprint_data)
+            response = self._make_request('PUT', f"{self.endpoint}/{blueprint_id}", data=update_payload)
             logger.info("Updated blueprint: %s", blueprint_id)
             return response
-        return None
+        except PortAPIError as e:
+            if "404" in str(e):
+                logger.error("Failed to update blueprint %s - Not found:\n%s", 
+                           blueprint_id, e.get_detailed_message())
+            else:
+                logger.error("Failed to update blueprint %s:\n%s", 
+                           blueprint_id, e.get_detailed_message())
+            raise
 
     def _prepare_update_payload(self, blueprint_data: Dict) -> Dict:
         """Prepare blueprint data for update by removing server-managed fields.

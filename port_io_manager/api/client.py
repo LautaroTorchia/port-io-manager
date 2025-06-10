@@ -3,15 +3,32 @@ import sys
 import json
 import logging
 from typing import Optional, Dict, Any
+from pprint import pformat
 
 logger = logging.getLogger(__name__)
 
 class PortAPIError(Exception):
     """Base exception for Port.io API errors."""
-    def __init__(self, status_code: int, message: str):
+    def __init__(self, status_code: int, message: str, response_data: Optional[Dict] = None, request_data: Optional[Dict] = None):
         self.status_code = status_code
         self.message = message
+        self.response_data = response_data
+        self.request_data = request_data
         super().__init__(self.message)
+
+    def get_detailed_message(self) -> str:
+        """Get a detailed error message with request/response context."""
+        details = [f"{self.status_code} Error: {self.message}"]
+        
+        if self.request_data:
+            details.append("\nRequest Data:")
+            details.append(pformat(self.request_data))
+        
+        if self.response_data:
+            details.append("\nResponse Data:")
+            details.append(pformat(self.response_data))
+        
+        return "\n".join(details)
 
 class PortAPIConflictError(PortAPIError):
     """Exception for 409 Conflict errors."""
@@ -119,9 +136,33 @@ class PortAPIClient:
             error_details = self._extract_error_details(e)
             logger.error("API request failed: %s", error_details)
             
+            try:
+                response_data = e.response.json() if e.response else None
+            except ValueError:
+                response_data = {'raw_text': e.response.text} if e.response else None
+
+            sanitized_data = None
+            if data:
+                # Create a copy of the data and remove sensitive fields
+                sanitized_data = data.copy()
+                sensitive_fields = ['clientId', 'clientSecret', 'token', 'password']
+                for field in sensitive_fields:
+                    if field in sanitized_data:
+                        sanitized_data[field] = '***REDACTED***'
+            
             if e.response.status_code == 409:
-                raise PortAPIConflictError(409, error_details)
-            raise PortAPIError(e.response.status_code, error_details)
+                raise PortAPIConflictError(
+                    409,
+                    error_details,
+                    response_data=response_data,
+                    request_data=sanitized_data
+                )
+            raise PortAPIError(
+                e.response.status_code,
+                error_details,
+                response_data=response_data,
+                request_data=sanitized_data
+            )
         except requests.exceptions.RequestException as e:
             error_details = self._extract_error_details(e)
             logger.error("API request failed: %s", error_details)
