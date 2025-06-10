@@ -1,5 +1,6 @@
 import requests
 import sys
+import json
 import logging
 from typing import Optional, Dict, Any
 
@@ -40,10 +41,48 @@ class PortAPIClient:
             })
             logger.info("Successfully authenticated with Port.io API")
         except requests.exceptions.RequestException as e:
-            logger.error("Failed to authenticate with Port.io API: %s", str(e))
-            if hasattr(e, 'response') and e.response:
-                logger.debug("Authentication error details: %s", e.response.text)
+            error_details = self._extract_error_details(e)
+            logger.error("Failed to authenticate with Port.io API: %s", error_details)
             sys.exit(1)
+
+    def _extract_error_details(self, error: requests.exceptions.RequestException) -> str:
+        """Extract detailed error information from API response.
+
+        Args:
+            error: The request exception
+
+        Returns:
+            Formatted error message with details
+        """
+        if not hasattr(error, 'response') or not error.response:
+            return str(error)
+
+        try:
+            error_json = error.response.json()
+            if isinstance(error_json, dict):
+                # Extract useful fields from the error response
+                error_msg = error_json.get('message', '')
+                error_code = error_json.get('code', '')
+                validation_errors = error_json.get('validationErrors', [])
+                
+                details = []
+                if error_msg:
+                    details.append(f"Message: {error_msg}")
+                if error_code:
+                    details.append(f"Code: {error_code}")
+                if validation_errors:
+                    details.append("Validation Errors:")
+                    for error in validation_errors:
+                        details.append(f"  - {error}")
+                
+                if details:
+                    return f"{error.response.status_code} {error.response.reason}: {' | '.join(details)}"
+            
+            # Fallback to raw JSON if structure is different
+            return f"{error.response.status_code} {error.response.reason}: {json.dumps(error_json)}"
+        except ValueError:
+            # If response is not JSON, return raw text
+            return f"{error.response.status_code} {error.response.reason}: {error.response.text}"
 
     def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Any:
         """Make a request to the Port.io API.
@@ -62,7 +101,6 @@ class PortAPIClient:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error("API request failed: %s", str(e))
-            if hasattr(e, 'response') and e.response:
-                logger.debug("API error details: %s", e.response.text)
+            error_details = self._extract_error_details(e)
+            logger.error("API request failed: %s", error_details)
             return None 

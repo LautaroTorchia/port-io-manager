@@ -1,6 +1,6 @@
 {
     "identifier": "service4",
-    "title": "Microservice39",
+    "title": "Microservice42",
     "icon": "Microservice",
     "ownership": {
       "type": "Direct"
@@ -11,11 +11,11 @@
     },
     "mirrorProperties": {
       "repo_id": {
-        "title": "Repo ID",
+        "title": "Repo ID ",
         "path": "repository.$identifier"
       },
       "last_push": {
-        "title": "Last push ",
+        "title": "Last push",
         "path": "repository.last_push"
       },
       "require_code_owner_review": {
@@ -66,14 +66,14 @@
       }
     },
     "relations": {
-      "repository": {
-        "title": "Repository",
+      "repo": {
+        "title": "Repo",
         "target": "githubRepository",
         "required": false,
         "many": false
       },
-      "repo": {
-        "title": "Repo",
+      "repo2": {
+        "title": "Repo2",
         "target": "githubRepository",
         "required": false,
         "many": false

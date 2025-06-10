@@ -1,30 +1,52 @@
 import json
+import logging
 from typing import Dict, Optional, List
 from datetime import datetime, timezone
 from deepdiff import DeepDiff
 from ..api.endpoints.blueprints import BlueprintClient
 
+logger = logging.getLogger(__name__)
+
 class BlueprintService:
-    """Service class for managing blueprints and their synchronization."""
+    """Service for managing blueprints and their synchronization with Port.io."""
 
     def __init__(self, client: BlueprintClient):
+        """Initialize the Blueprint service.
+
+        Args:
+            client: Initialized Port.io blueprint client
+        """
         self.client = client
 
     def load_blueprint_from_file(self, file_path: str) -> Optional[Dict]:
-        """Loads a blueprint from a JSON file."""
+        """Load a blueprint definition from a JSON file.
+
+        Args:
+            file_path: Path to the JSON file
+
+        Returns:
+            Blueprint data or None if loading fails
+        """
         try:
             with open(file_path, 'r') as f:
                 blueprint_data = json.load(f)
             return blueprint_data
         except json.JSONDecodeError:
-            print(f"❌ Error: The file '{file_path}' is not valid JSON.")
+            logger.error("Invalid JSON file: %s", file_path)
             return None
         except FileNotFoundError:
-            print(f"❌ Error: The file '{file_path}' was not found.")
+            logger.error("File not found: %s", file_path)
             return None
 
     def format_diff_for_display(self, diff: DeepDiff) -> Dict:
-        """Formats the DeepDiff object for clear display."""
+        """Format DeepDiff output for human-readable display.
+
+        Args:
+            diff: DeepDiff comparison result
+
+        Returns:
+            Formatted difference data
+        """
         processed_diff = {}
         if 'values_changed' in diff:
             processed_diff['values_changed'] = [
@@ -46,7 +68,15 @@ class BlueprintService:
         return processed_diff
 
     def compare_blueprints(self, local_blueprint: Dict, remote_blueprint: Dict) -> Optional[Dict]:
-        """Compares local and remote blueprints and shows differences."""
+        """Compare local and remote blueprint configurations.
+
+        Args:
+            local_blueprint: Local blueprint definition
+            remote_blueprint: Remote blueprint definition from Port.io
+
+        Returns:
+            Formatted differences or None if blueprints are identical
+        """
         exclude_paths = [
             "root['createdAt']",
             "root['updatedAt']",
@@ -56,18 +86,44 @@ class BlueprintService:
         diff = DeepDiff(remote_blueprint, local_blueprint, ignore_order=True, exclude_paths=exclude_paths)
         
         if not diff:
-            print("✅ No differences found. Blueprint is synchronized.")
+            logger.info("No differences found between local and remote blueprints")
             return None
 
-        print("🔎 Differences found:")
         formatted_diff = self.format_diff_for_display(diff)
-        print(json.dumps(formatted_diff, indent=2, ensure_ascii=False))
+        logger.info("Found differences between local and remote blueprints:")
+        
+        # Display changes in a readable format
+        if 'values_changed' in formatted_diff:
+            logger.info("Modified values:")
+            for change in formatted_diff['values_changed']:
+                logger.info("  Field: %s", change['key'])
+                logger.info("    - Remote: %s", change['remote_value'])
+                logger.info("    + Local:  %s", change['local_value'])
+
+        if 'items_added_locally' in formatted_diff:
+            logger.info("Added fields:")
+            for item in formatted_diff['items_added_locally']:
+                logger.info("  + %s", item)
+
+        if 'items_removed_locally' in formatted_diff:
+            logger.info("Removed fields:")
+            for item in formatted_diff['items_removed_locally']:
+                logger.info("  - %s", item)
+
         return formatted_diff
 
     def check_recent_update(self, blueprint_metadata: Dict, force_update: bool = False) -> bool:
-        """Checks if the blueprint was recently updated in the UI."""
+        """Check if blueprint was recently updated in Port.io UI.
+
+        Args:
+            blueprint_metadata: Blueprint metadata containing update timestamp
+            force_update: Whether to ignore recent updates
+
+        Returns:
+            True if safe to update, False if recently modified
+        """
         if force_update:
-            print("Forcing update (--force). Ignoring last modification date.")
+            logger.info("Force update enabled, skipping recent update check")
             return True
         
         last_updated_str = blueprint_metadata.get('updatedAt')
@@ -77,15 +133,20 @@ class BlueprintService:
         last_updated = datetime.fromisoformat(last_updated_str.replace('Z', '+00:00'))
         time_difference = datetime.now(timezone.utc) - last_updated
         
-        print(f"Last remote update: {last_updated}")
         if time_difference.total_seconds() < 86400:  # Less than 24 hours
-            print("⚠️  Warning! Blueprint has been updated from the UI less than 24 hours ago.")
+            logger.warning("Blueprint was updated in Port.io UI less than 24 hours ago")
             return False
         return True
 
     def process_blueprint_file(self, file_path: str, force_update: bool = False, skip_confirmation: bool = False) -> None:
-        """Processes a single blueprint file."""
-        print(f"\n{'='*20} \n📂 Processing: {file_path} \n{'='*20}")
+        """Process a blueprint file for synchronization with Port.io.
+
+        Args:
+            file_path: Path to the blueprint JSON file
+            force_update: Whether to force update regardless of recent changes
+            skip_confirmation: Whether to skip user confirmation prompts
+        """
+        logger.info("Processing blueprint file: %s", file_path)
         
         local_blueprint_data = self.load_blueprint_from_file(file_path)
         if not local_blueprint_data:
@@ -93,7 +154,7 @@ class BlueprintService:
 
         blueprint_id = local_blueprint_data.get('identifier')
         if not blueprint_id:
-            print(f"❌ Error: JSON in '{file_path}' must have an 'identifier' key.")
+            logger.error("Missing required 'identifier' field in blueprint: %s", file_path)
             return
 
         remote_blueprint = self.client.get_blueprint(blueprint_id)
@@ -104,15 +165,13 @@ class BlueprintService:
                 return
 
             if not self.check_recent_update(remote_blueprint, force_update) and not skip_confirmation:
-                user_input = input("Do you want to continue and overwrite remote changes? (y/N): ")
+                user_input = input("Blueprint was recently updated in Port.io UI. Continue with update? (y/N): ")
                 if user_input.lower() != 'y':
-                    print("Operation aborted by user for this file.")
+                    logger.info("Update cancelled by user for blueprint: %s", blueprint_id)
                     return
-            elif skip_confirmation:
-                print("Skipping confirmation due to --no-prompt flag.")
             
-            print(f"Updating blueprint '{blueprint_id}'...")
+            logger.info("Updating blueprint: %s", blueprint_id)
             self.client.update_blueprint(blueprint_id, local_blueprint_data)
         else:
-            print(f"Creating new blueprint '{blueprint_id}'...")
+            logger.info("Creating new blueprint: %s", blueprint_id)
             self.client.create_blueprint(local_blueprint_data) 
