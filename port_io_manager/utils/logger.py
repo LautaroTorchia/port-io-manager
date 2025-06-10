@@ -1,58 +1,69 @@
+"""Logging configuration for the Port.io Manager."""
+
+import os
 import logging
-import colorama
-from datetime import datetime
-from colorama import Fore, Style
+import logging.config
+from typing import Optional
 
-# Initialize colorama for cross-platform color support
-colorama.init()
-
-class ColoredFormatter(logging.Formatter):
-    """Custom formatter adding colors and metadata to log messages."""
+def setup_logging(debug: bool = False) -> None:
+    """Configure logging for the application.
     
-    COLORS = {
-        'DEBUG': Fore.BLUE,
-        'INFO': Fore.GREEN,
-        'WARNING': Fore.YELLOW,
-        'ERROR': Fore.RED,
-        'CRITICAL': Fore.RED + Style.BRIGHT,
+    Args:
+        debug: Whether to enable debug logging
+    """
+    log_level = logging.DEBUG if debug else logging.INFO
+    
+    logging_config = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'standard': {
+                'format': '[Port.io Manager] - %(asctime)s - %(levelname)s - %(message)s',
+                'datefmt': '%Y-%m-%d %H:%M:%S'
+            },
+            'debug': {
+                'format': '[Port.io Manager] - %(asctime)s - %(levelname)s - %(name)s - %(message)s',
+                'datefmt': '%Y-%m-%d %H:%M:%S'
+            }
+        },
+        'handlers': {
+            'console': {
+                'class': 'logging.StreamHandler',
+                'formatter': 'debug' if debug else 'standard',
+                'level': log_level,
+                'stream': 'ext://sys.stdout'
+            },
+            'error_console': {
+                'class': 'logging.StreamHandler',
+                'formatter': 'debug' if debug else 'standard',
+                'level': logging.ERROR,
+                'stream': 'ext://sys.stderr'
+            }
+        },
+        'loggers': {
+            'port_io_manager': {
+                'handlers': ['console', 'error_console'],
+                'level': log_level,
+                'propagate': False
+            }
+        },
+        'root': {
+            'level': log_level,
+            'handlers': ['console', 'error_console']
+        }
     }
 
-    def format(self, record):
-        # Add timestamp
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Color the level name
-        level_color = self.COLORS.get(record.levelname, '')
-        level_name = f"{level_color}{record.levelname}{Style.RESET_ALL}"
+    # Create log directory if specified
+    log_file = os.getenv('PORT_LOG_FILE')
+    if log_file:
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        logging_config['handlers']['file'] = {
+            'class': 'logging.FileHandler',
+            'formatter': 'debug',
+            'filename': log_file,
+            'mode': 'a'
+        }
+        logging_config['loggers']['port_io_manager']['handlers'].append('file')
+        logging_config['root']['handlers'].append('file')
 
-        # Format with metadata, using fixed module name
-        record.metadata = f"[Port.io Manager] - {timestamp} - {level_name} -"
-        
-        # Add colors to specific keywords in the message
-        if "differences found" in record.msg.lower():
-            record.msg = f"{Fore.YELLOW}{record.msg}{Style.RESET_ALL}"
-        elif "updated" in record.msg.lower():
-            record.msg = f"{Fore.GREEN}{record.msg}{Style.RESET_ALL}"
-        elif "error" in record.msg.lower():
-            record.msg = f"{Fore.RED}{record.msg}{Style.RESET_ALL}"
-
-        return super().format(record)
-
-def setup_logging():
-    """Configure logging with custom formatter and handlers."""
-    formatter = ColoredFormatter('%(metadata)s %(message)s')
-    
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    
-    # Configure root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    
-    # Remove existing handlers and add our custom handler
-    root_logger.handlers = []
-    root_logger.addHandler(console_handler)
-
-    # Prevent propagation of messages to parent loggers
-    logging.getLogger('urllib3').setLevel(logging.WARNING) 
+    logging.config.dictConfig(logging_config) 

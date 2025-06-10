@@ -173,6 +173,7 @@ class BlueprintService:
             except PortAPIError as e:
                 if "404" not in str(e):
                     logger.error("Failed to check blueprint %s: %s", blueprint_id, e.get_detailed_message())
+                    logger.debug("Full error details:\n%s", e.get_full_details())
                     self.has_failures = True
                     return False
                 remote_blueprint = None
@@ -198,13 +199,14 @@ class BlueprintService:
                 except PortAPIError as e:
                     if "404" not in str(e):
                         logger.error("Failed to update blueprint %s: %s", blueprint_id, e.get_detailed_message())
+                        logger.debug("Full error details:\n%s", e.get_full_details())
                         self.has_failures = True
                         return False
                     # If we get a 404, the blueprint was deleted after we checked
-                    logger.warning("Blueprint '%s' was deleted, attempting to create it", blueprint_id)
+                    logger.warning("Blueprint '%s' was deleted after initial check, attempting to create it", blueprint_id)
 
             # If we get here, either:
-            # 1. The blueprint didn't exist
+            # 1. The blueprint didn't exist initially
             # 2. The blueprint was deleted after we checked
             # In both cases, try to create it
             try:
@@ -215,15 +217,18 @@ class BlueprintService:
             except PortAPIConflictError as e:
                 # This is a race condition - the blueprint was created after our initial check
                 logger.error("Race condition detected for blueprint %s: %s", blueprint_id, e.get_detailed_message())
+                logger.debug("Full error details:\n%s", e.get_full_details())
                 logger.error("Please try the operation again")
                 self.has_failures = True
                 return False
             except PortAPIError as e:
                 logger.error("Failed to create blueprint %s: %s", blueprint_id, e.get_detailed_message())
+                logger.debug("Full error details:\n%s", e.get_full_details())
                 self.has_failures = True
                 return False
 
         except Exception as e:
             logger.error("Unexpected error while processing blueprint %s: %s", blueprint_id, str(e))
+            logger.debug("Stack trace:", exc_info=True)
             self.has_failures = True
             return False 
