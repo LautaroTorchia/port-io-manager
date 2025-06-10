@@ -14,6 +14,26 @@ class PortAPIError(Exception):
 
     def get_detailed_message(self) -> str:
         """Get a detailed error message with request/response context."""
+        if self.response_data and isinstance(self.response_data, dict):
+            error_msg = self.response_data.get('message', '')
+            error_code = self.response_data.get('code', '')
+            validation_errors = self.response_data.get('validationErrors', [])
+            
+            details = []
+            if error_msg:
+                details.append(error_msg)
+            if error_code:
+                details.append(f"Code: {error_code}")
+            if validation_errors:
+                details.extend(validation_errors)
+            
+            if details:
+                return f"{self.status_code} Error: {' | '.join(details)}"
+        
+        return f"{self.status_code} Error: {self.message}"
+
+    def get_full_details(self) -> str:
+        """Get complete error details including request/response data for debugging."""
         details = [f"{self.status_code} Error: {self.message}"]
         
         if self.request_data:

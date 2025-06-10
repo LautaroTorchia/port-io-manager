@@ -167,14 +167,18 @@ class BlueprintService:
             return False
 
         try:
-            remote_blueprint = None
+            # First try to get the blueprint
             try:
                 remote_blueprint = self.client.get_blueprint(blueprint_id)
             except PortAPIError as e:
                 if "404" not in str(e):
-                    raise
+                    logger.error("Failed to check blueprint %s: %s", blueprint_id, e.get_detailed_message())
+                    self.has_failures = True
+                    return False
+                remote_blueprint = None
 
             if remote_blueprint:
+                # Blueprint exists, try to update it
                 diff = self.compare_blueprints(local_blueprint_data, remote_blueprint)
                 if not diff:
                     logger.info("Blueprint '%s' is up to date", blueprint_id)
@@ -191,37 +195,34 @@ class BlueprintService:
                     self.client.update_blueprint(blueprint_id, local_blueprint_data)
                     logger.info("Successfully updated blueprint: %s", blueprint_id)
                     return True
-                except PortAPIError as update_error:
-                    if "404" in str(update_error):
-                        logger.warning("Blueprint '%s' not found during update, attempting to create it", blueprint_id)
-                    else:
-                        raise update_error
+                except PortAPIError as e:
+                    if "404" not in str(e):
+                        logger.error("Failed to update blueprint %s: %s", blueprint_id, e.get_detailed_message())
+                        self.has_failures = True
+                        return False
+                    # If we get a 404, the blueprint was deleted after we checked
+                    logger.warning("Blueprint '%s' was deleted, attempting to create it", blueprint_id)
 
             # If we get here, either:
             # 1. The blueprint didn't exist
-            # 2. The update failed with 404
-            # In both cases, we try to create it
-            logger.info("Creating new blueprint: %s", blueprint_id)
+            # 2. The blueprint was deleted after we checked
+            # In both cases, try to create it
             try:
+                logger.info("Creating blueprint: %s", blueprint_id)
                 self.client.create_blueprint(local_blueprint_data)
                 logger.info("Successfully created blueprint: %s", blueprint_id)
                 return True
-            except PortAPIConflictError as create_error:
-                if "already exists" in str(create_error).lower():
-                    logger.error("Conflict: Blueprint '%s' already exists but couldn't be retrieved or updated", blueprint_id)
-                    logger.error("This might indicate an issue with Port.io API permissions or a race condition")
-                raise
+            except PortAPIConflictError as e:
+                # This is a race condition - the blueprint was created after our initial check
+                logger.error("Race condition detected for blueprint %s: %s", blueprint_id, e.get_detailed_message())
+                logger.error("Please try the operation again")
+                self.has_failures = True
+                return False
+            except PortAPIError as e:
+                logger.error("Failed to create blueprint %s: %s", blueprint_id, e.get_detailed_message())
+                self.has_failures = True
+                return False
 
-        except PortAPIConflictError as e:
-            logger.error("Conflict error while processing blueprint %s: %s", blueprint_id, e.message)
-            if "already exists" in e.message.lower():
-                logger.error("A blueprint with identifier '%s' already exists. Please choose a different identifier.", blueprint_id)
-            self.has_failures = True
-            return False
-        except PortAPIError as e:
-            logger.error("API error while processing blueprint %s: %s", blueprint_id, e.message)
-            self.has_failures = True
-            return False
         except Exception as e:
             logger.error("Unexpected error while processing blueprint %s: %s", blueprint_id, str(e))
             self.has_failures = True
