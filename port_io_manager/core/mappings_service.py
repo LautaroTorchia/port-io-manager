@@ -99,11 +99,17 @@ class MappingService:
             logger.info(f"\n{Fore.CYAN}[DRY RUN] Would apply changes to integration '{integration_id}'.{Style.RESET_ALL}")
             return True, "dry_run", None
         
+        change_data = {
+            "integration_id": integration_id,
+            "config": desired_config
+        }
+
         if not force:
-            return True, "confirmation_required", desired_config
+            return True, "confirmation_required", change_data
 
         # If force is true, proceed with the update
-        return self.apply_mapping_update(integration_id, desired_config)
+        success, status = self.apply_mapping_update(change_data["integration_id"], change_data["config"])
+        return success, status, None
 
     def apply_mapping_update(self, integration_id: str, config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """Applies the configuration update to the integration."""

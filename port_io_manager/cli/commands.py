@@ -167,7 +167,7 @@ def sync_mapping_command(args: argparse.Namespace) -> None:
 
         for file_path in yaml_files:
             logger.info(f"\n{Style.BRIGHT}--- Processing: {file_path} ---{Style.RESET_ALL}")
-            success, status, desired_config = service.process_mapping_file(
+            success, status, change_data = service.process_mapping_file(
                 file_path=file_path,
                 dry_run=args.dry_run,
                 force=args.no_prompt
@@ -176,23 +176,15 @@ def sync_mapping_command(args: argparse.Namespace) -> None:
             if status == 'confirmation_required':
                 if args.no_prompt:
                     logger.warning(f"Applying changes without prompt for {file_path} due to --no-prompt.")
-                    service.apply_mapping_update(desired_config.get('integrationIdentifier'), desired_config)
+                    service.apply_mapping_update(change_data["integration_id"], change_data["config"])
                 else:
                     user_input = input(f"Differences found for mapping in {file_path}. "
                                        "Do you want to apply the changes? (y/N): ")
                     if user_input.lower() == 'y':
-                        integration_id = desired_config.get('integrationIdentifier')
-                        # The desired_config from process_mapping_file no longer has the identifier
-                        # We need to re-fetch it from the loaded file to pass to the apply function.
-                        # This is a bit of a workaround. A better fix would be to pass it through.
-                        # For now, let's make it work.
-                        import yaml
-                        with open(file_path, 'r') as f:
-                            local_mapping = yaml.safe_load(f)
-                            integration_id = local_mapping.get('integrationIdentifier')
-
+                        integration_id = change_data["integration_id"]
+                        config = change_data["config"]
                         logger.info(f"User approved update for mapping '{integration_id}'.")
-                        service.apply_mapping_update(integration_id, desired_config)
+                        service.apply_mapping_update(integration_id, config)
                     else:
                         logger.info(f"Update for {file_path} cancelled by user.")
 
