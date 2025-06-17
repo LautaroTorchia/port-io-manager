@@ -30,6 +30,7 @@ setup(
         "deepdiff>=6.7.1",
         "python-dotenv>=1.0.0",
         "colorama>=0.4.6",
+        "PyYAML>=6.0",
     ],
     entry_points={
         'console_scripts': [

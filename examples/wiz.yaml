@@ -1,0 +1,70 @@
+integrationIdentifier: "wiz-integration-2"
+createMissingRelatedEntities: false
+deleteDependentEntities: true
+enableMergeEntity: true
+resources:
+  - kind: issue
+    port:
+      entity:
+        mappings:
+          - blueprint: '"wizIssue"'
+            identifier: .id
+            properties:
+              cloudPlatform: .entitySnapshot.cloudPlatform
+              cloudRegion: .entitySnapshot.region
+              cloudResourceID: .entitySnapshot.providerId
+              cloudResourceType: .entitySnapshot.type
+              createdAt: .createdAt
+              linkToResource: >-
+                if .entitySnapshot.cloudProviderURL == "" then null else
+                .entitySnapshot.cloudProviderURL end
+              notes: .notes
+              resolvedAt: .resolvedAt
+              resourceGroupExternalId: .entitySnapshot.resourceGroupExternalId
+              resourceName: .entitySnapshot.name
+              resourceTags: .entitySnapshot.tags
+              severity: .severity
+              status: .status
+              statusChangedAt: .statusChangedAt
+              subscriptionExternalId: .entitySnapshot.subscriptionExternalId
+              subscriptionName: .entitySnapshot.subscriptionName
+              subscriptionTags: .entitySnapshot.subscriptionTags
+              updatedAt: .updatedAt
+              url: .id as $id | "https://app.wiz.io/issues#~(issue~'" + $id + ")"
+              vulnerability: .entitySnapshot
+              vulnerabilityType: .type
+              wizIssueID: .entitySnapshot.id
+              wizIssueName: .entitySnapshot.name
+              wizIssuePassword: .entitySnapshot.password
+            relations:
+              auroraPostgreSQL: >-
+                if .entitySnapshot.type == "RDS" then (.entitySnapshot.name |
+                split("-") | .[1] + "_" + .[2]) else null end
+              control: .sourceRule.id
+              dynamoDb: >-
+                if .entitySnapshot.type == "DYNAMO" then (.entitySnapshot.name |
+                split("-") | .[1] + "_" + .[2]) else null end
+              s3: >-
+                if .entitySnapshot.type == "BUCKET" then (.entitySnapshot.name |
+                split("-") | .[1] + "_" + .[2]) else null end
+              sns: >-
+                if .entitySnapshot.type == "SNS" then (.entitySnapshot.name |
+                split("-") | .[1] + "_" + .[2]) else null end
+              sqs: >-
+                if .entitySnapshot.type == "SQS" then (.entitySnapshot.name |
+                split("-") | .[1] + "_" + .[2]) else null end
+            title: .sourceRule.name
+    selector:
+      query: 'true'
+  - kind: control
+    port:
+      entity:
+        mappings:
+          - blueprint: '"wizControl"'
+            identifier: .id
+            properties:
+              controlDescription: .controlDescription
+              resolutionRecommendation: .resolutionRecommendation
+            title: .names
+    selector:
+      query: 'true'

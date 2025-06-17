@@ -1,0 +1,73 @@
+{
+  "blueprintIdentifier": "example_service",
+  "scorecard": {
+    "identifier": "Ownership",
+    "title": "Ownership Total 2.0",
+    "levels": [
+      {
+        "color": "paleBlue",
+        "title": "Basic"
+      },
+      {
+        "color": "bronze",
+        "title": "Bronze"
+      },
+      {
+        "color": "silver",
+        "title": "Silver"
+      },
+      {
+        "color": "gold",
+        "title": "Gold"
+      },
+      {
+        "color": "paleBlue",
+        "title": "Platinum"
+      }
+    ],
+    "rules": [
+      {
+        "identifier": "hasSlackChannel",
+        "title": "Has Slack Channel",
+        "level": "Silver",
+        "query": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "operator": "isNotEmpty",
+              "property": "$team"
+            }
+          ]
+        }
+      },
+      {
+        "identifier": "hasTeam",
+        "title": "Has Team",
+        "level": "Bronze",
+        "query": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "operator": "isNotEmpty",
+              "property": "$team"
+            }
+          ]
+        }
+      },
+      {
+        "identifier": "hasName",
+        "title": "Has Name",
+        "level": "Bronze",
+        "query": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "operator": "isNotEmpty",
+              "property": "name"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,174 +1,116 @@
 # Port.io Manager
 
-A professional Infrastructure as Code (IaC) tool for managing Port.io resources. This tool allows you to manage Port.io resources (currently blueprints) using local JSON files, enabling version control and GitOps practices.
+**Port.io Manager** is a command-line interface (CLI) tool designed to manage [Port.io](https://www.getport.io/) resources using an Infrastructure as Code (IaC) approach. It allows you to define your Port configurations (Blueprints, Scorecards, Integration Mappings) in local files (JSON/YAML) and synchronize them with the Port.io platform, enabling a GitOps-style workflow for your internal developer portal.
 
-## Features
+This prototype provides a solid foundation for managing your Port.io environment, ensuring consistency, version control, and automated deployments.
 
-### Core Functionality
-- Create and update Port.io blueprints from JSON files
-- Compare local and remote blueprint configurations
-- Detect and warn about recent UI changes
-- Support for both single files and directories
-- Detailed change visualization
-- Comprehensive error reporting
+[![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE)
+[![Issues](https://img.shields.io/github/issues/your-repo/port-io-manager)](https://github.com/your-repo/port-io-manager/issues) <!-- TODO: Update with actual repo link -->
 
-### CLI Features
-- Modern command-line interface with subcommands
-- Support for multiple input methods:
-  ```bash
-  # Process single file
-  port-io-manager sync-blueprint -f blueprint.json
+---
 
-  # Process multiple files
-  port-io-manager sync-blueprint -f blueprint1.json,blueprint2.json
+## 🚀 Core Functionality
 
-  # Process entire directory
-  port-io-manager sync-blueprint -d blueprints/
-  ```
-- Force update option: `--force`
-- Non-interactive mode: `--no-prompt`
+The main goal of this tool is to synchronize local configuration files with the Port.io API. It makes the local files the **single source of truth**.
 
-### Professional Logging
-- Structured logging with metadata
-- Color-coded output for better readability
-- Detailed error messages with API response information
-- Clear change visualization
-- Progress tracking and operation status
+The synchronization process follows these steps:
+1.  **Load Local State:** Read the resource definitions from your local files (`.json` or `.yaml`).
+2.  **Fetch Remote State:** Query the Port.io API to get the current configuration.
+3.  **Compare and Diff:** Compare the local and remote states to identify differences.
+4.  **Display Plan:** Show a clear, color-coded execution plan (`--dry-run`) detailing what will be created, updated, or deleted.
+5.  **Apply Changes:** Upon confirmation (or if running without `--dry-run`), apply the changes via the Port.io API.
 
-## Installation
+This enables a robust **GitOps workflow**:
+-   Define all your Port.io resources in a Git repository.
+-   Use Pull Requests to review changes.
+-   Automate the synchronization process in a CI/CD pipeline to apply changes upon merging.
 
-1. Clone the repository:
+## 📦 Supported Resources
+
+The prototype currently supports managing the following Port.io resources:
+
+| Resource    | File Format | Sync Command                  | Description                                                                                             |
+|-------------|-------------|-------------------------------|---------------------------------------------------------------------------------------------------------|
+| **Blueprints**  | JSON        | `sync-blueprint`              | Synchronizes a single Port.io Blueprint. It manages properties, relations, and other configurations.      |
+| **Mappings**    | YAML        | `sync-mapping`                | Synchronizes the `entity-mappings` for a Port.io Integration. Supports a "prune" behavior by default. |
+| **Scorecards**  | JSON        | `sync-scorecard`              | Synchronizes individual Scorecards for a given Blueprint. Supports aggregation of multiple files.     |
+
+## 🛠️ Available Commands
+
+The CLI is organized into logical groups for each resource type.
+
+### `sync-blueprint`
+Synchronizes a single Blueprint from a JSON file.
+
 ```bash
-git clone <repository-url>
-cd port_io_manager
+port-io-manager sync-blueprint --file <path-to-blueprint.json> [--dry-run]
 ```
+-   `--file`: Path to the Blueprint definition file.
+-   `--dry-run`: (Optional) Show a plan of changes without applying them.
 
-2. Create and activate a virtual environment:
+### `sync-mapping`
+Synchronizes Integration Mappings from a YAML file.
+
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+port-io-manager sync-mapping --file <path-to-mapping.yaml> [--dry-run]
 ```
+-   `--file`: Path to the Integration Mapping definition file.
+-   `--dry-run`: (Optional) Show a plan of changes without applying them.
 
-3. Install the package:
+### `sync-scorecard`
+Synchronizes one or more Scorecards from JSON files. If multiple files target the same blueprint, they are merged before syncing.
+
 ```bash
-pip install -e .
+port-io-manager sync-scorecard --files <path1.json> [<path2.json>...] [--dry-run]
 ```
+-   `--files`: One or more paths to Scorecard definition files.
+-   `--dry-run`: (Optional) Show a plan of changes without applying them.
 
-## Configuration
+---
 
-Create a `.env` file in your project directory with your Port.io credentials:
+## 🔧 Installation and Setup
 
-```env
-PORT_CLIENT_ID=your_client_id
-PORT_CLIENT_SECRET=your_client_secret
-```
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repository-url>
+    cd port-io-manager
+    ```
 
-## Usage
+2.  **Create a virtual environment (recommended):**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
 
-### Basic Usage
+3.  **Install dependencies and the CLI:**
+    ```bash
+    pip install -e .
+    ```
+    The `-e` flag installs the package in "editable" mode, so changes to the source code are immediately reflected.
 
-1. Create or update a single blueprint:
-```bash
-port-io-manager sync-blueprint -f path/to/blueprint.json
-```
+4.  **Configure Credentials:**
+    Create a `.env` file in the root of the project and add your Port.io API credentials:
+    ```env
+    PORT_CLIENT_ID="<your-port-client-id>"
+    PORT_CLIENT_SECRET="<your-port-client-secret>"
+    ```
 
-2. Process multiple blueprints:
-```bash
-port-io-manager sync-blueprint -f blueprint1.json,blueprint2.json
-```
+## Extend the Prototype
 
-3. Process all blueprints in a directory:
-```bash
-port-io-manager sync-blueprint -d path/to/blueprints/
-```
+This tool is built with modularity in mind, making it easy to extend. To add support for a new Port.io resource (e.g., `Action` or `Report`), you would typically follow these steps:
 
-### Advanced Options
+1.  **Create an API Client:** Add a new client in `port_io_manager/api/endpoints/` to handle the specific API requests for the new resource.
+2.  **Implement the Core Service:** Create a new service in `port_io_manager/core/` that contains the business logic for fetching, comparing, and syncing the resource.
+3.  **Expose a CLI Command:** Add a new command in `port_io_manager/cli/commands.py` to expose the new functionality to the user.
+4.  **Add Examples:** Provide example configuration files in the `examples/` directory.
 
-- Force update (ignore recent UI changes):
-```bash
-port-io-manager sync-blueprint -f blueprint.json --force
-```
+## 🤝 Contributing
 
-- Skip confirmation prompts:
-```bash
-port-io-manager sync-blueprint -d blueprints/ --no-prompt
-```
+This prototype is just the beginning! Contributions, bug reports, and feature requests are highly welcome.
 
-### Example Output
+-   **Found a bug?** Please [open an issue](https://github.com/your-repo/port-io-manager/issues) and provide detailed steps to reproduce it.
+-   **Have a feature idea?** Open an issue to discuss the proposal. We would love to hear your thoughts.
+-   **Want to contribute code?** Fork the repository, make your changes, and submit a Pull Request.
 
-```
-[Port.io Manager] - 2024-03-14 10:30:15 - INFO - Starting synchronization of 2 blueprint(s)
-[Port.io Manager] - 2024-03-14 10:30:15 - INFO - Processing blueprint file: service.json
-[Port.io Manager] - 2024-03-14 10:30:15 - INFO - Found differences between local and remote blueprints:
-[Port.io Manager] - 2024-03-14 10:30:15 - INFO - Modified values:
-[Port.io Manager] - 2024-03-14 10:30:15 - INFO -   Field: blueprint['title']
-[Port.io Manager] - 2024-03-14 10:30:15 - INFO -     - Remote: ServiceOld
-[Port.io Manager] - 2024-03-14 10:30:15 - INFO -     + Local:  ServiceNew
-```
-
-## Project Structure
-
-```
-port_io_manager/
-├── api/                    # API interaction layer
-│   ├── client.py          # Base API client
-│   └── endpoints/         # Endpoint-specific clients
-├── core/                  # Business logic
-│   └── services.py       # Core services
-├── cli/                   # CLI interface
-│   └── commands.py       # CLI commands
-└── utils/                # Utilities
-    └── logger.py        # Logging configuration
-```
-
-## Architecture
-
-The project follows a clean, modular architecture:
-
-1. **API Layer** (`api/`):
-   - Base client with authentication and request handling
-   - Endpoint-specific clients for different Port.io resources
-   - Comprehensive error handling and reporting
-
-2. **Core Layer** (`core/`):
-   - Business logic for blueprint management
-   - Change detection and comparison
-   - File handling and validation
-
-3. **CLI Layer** (`cli/`):
-   - Command-line interface with subcommands
-   - Argument parsing and validation
-   - User interaction handling
-
-4. **Utils** (`utils/`):
-   - Professional logging with metadata
-   - Color-coded output
-   - Reusable utilities
-
-## Error Handling
-
-The tool provides detailed error information:
-
-- API errors with response details
-- Validation errors with specific fields
-- Configuration and file errors
-- Network and authentication issues
-
-## Future Enhancements
-
-- Support for additional Port.io resources
-- Git integration for change detection
-- Batch operations and rollback support
-- Extended validation capabilities
-- CI/CD pipeline integration
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Make your changes
-4. Submit a pull request
-
-## License
-
-[License Type] - See LICENSE file for details 
+Together, we can build a powerful and comprehensive IaC tool for the Port.io ecosystem. 

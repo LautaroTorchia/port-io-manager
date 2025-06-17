@@ -1,0 +1,37 @@
+{
+    "blueprintIdentifier": "example_service",
+    "scorecard": {
+        "identifier": "Ownership2",
+        "title": "Ownership2",
+        "rules": [
+          {
+            "identifier": "hasSlackChannel",
+            "title": "Has Slack Channel",
+            "level": "Silver",
+            "query": {
+              "combinator": "and",
+              "conditions": [
+                {
+                  "operator": "isNotEmpty",
+                  "property": "$team"
+                }
+              ]
+            }
+          },
+          {
+            "identifier": "hasTeam",
+            "title": "Has Team",
+            "level": "Bronze",
+            "query": {
+              "combinator": "and",
+              "conditions": [
+                {
+                  "operator": "isNotEmpty",
+                  "property": "$team"
+                }
+              ]
+            }
+          }
+        ]
+      }
+}
