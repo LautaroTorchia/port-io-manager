@@ -1,10 +1,11 @@
 import json
 import logging
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, Tuple
 from datetime import datetime, timezone
-from deepdiff import DeepDiff
 from ..api.client import PortAPIError, PortAPIConflictError
 from ..api.endpoints.blueprints import BlueprintClient
+from ..comparator import BlueprintComparator, format_diff_for_display
+from colorama import Fore, Style
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class BlueprintService:
             client: Initialized Port.io blueprint client
         """
         self.client = client
+        self.comparator = BlueprintComparator()
         self.has_failures = False
 
     def load_blueprint_from_file(self, file_path: str) -> Optional[Dict]:
@@ -31,8 +33,7 @@ class BlueprintService:
         """
         try:
             with open(file_path, 'r') as f:
-                blueprint_data = json.load(f)
-            return blueprint_data
+                return json.load(f)
         except json.JSONDecodeError:
             logger.error("Invalid JSON file: %s", file_path)
             self.has_failures = True
@@ -42,217 +43,168 @@ class BlueprintService:
             self.has_failures = True
             return None
 
-    def format_diff_for_display(self, diff: DeepDiff) -> Dict:
-        """Format DeepDiff output for human-readable display."""
-        processed_diff = {}
+    def _check_related_entities_exist(self, blueprint_data: Dict) -> bool:
+        """Checks if all related blueprints defined in the local file exist in Port.io."""
+        relations = blueprint_data.get("relations", {})
+        if not isinstance(relations, dict):
+            return True  # No relations to check or invalid format
 
-        # Process modified fields (values changed)
-        if 'values_changed' in diff:
-            processed_diff['values_changed'] = []
-            for key, value in diff['values_changed'].items():
-                # Modify the path to be more readable
-                path = key.replace("root", "blueprint")
-                processed_diff['values_changed'].append({
-                    'key': path,
-                    'remote_value': value['old_value'],
-                    'local_value': value['new_value']
-                })
+        blueprint_id = blueprint_data.get("identifier", "N/A")
+        all_relations_exist = True
 
-        # Process added fields (dictionary_item_added)
-        if 'dictionary_item_added' in diff:
-            processed_diff['dictionary_item_added'] = [
-                item.replace("root", "blueprint") for item in diff['dictionary_item_added']
-            ]
+        for relation_name, relation_spec in relations.items():
+            if not isinstance(relation_spec, dict):
+                continue
 
-        # Process removed fields (dictionary_item_removed)
-        if 'dictionary_item_removed' in diff:
-            processed_diff['dictionary_item_removed'] = [
-                item.replace("root", "blueprint") for item in diff['dictionary_item_removed']
-            ]
+            target_id = relation_spec.get("target")
+            if not target_id:
+                continue
 
-        return processed_diff
+            try:
+                logger.debug(f"[{blueprint_id}] Validating relation '{relation_name}' -> '{target_id}'...")
+                related_blueprint = self.client.get_blueprint(target_id)
+                if not related_blueprint:
+                    logger.error(
+                        f"Validation failed for blueprint '{blueprint_id}': "
+                        f"Related blueprint '{target_id}' (from relation '{relation_name}') does not exist."
+                    )
+                    all_relations_exist = False
+            except PortAPIError as e:
+                logger.error(
+                    f"Validation failed for blueprint '{blueprint_id}': "
+                    f"API error while checking related blueprint '{target_id}': {e}"
+                )
+                all_relations_exist = False
 
-    def compare_blueprints(self, local_blueprint: Dict, remote_blueprint: Dict) -> Optional[Dict]:
-        """Compare local and remote blueprint configurations."""
-        exclude_paths = [
-            "root['createdAt']",
-            "root['updatedAt']",
-            "root['createdBy']",
-            "root['updatedBy']"
-        ]
+        return all_relations_exist
+
+    def _log_diff(self, formatted_diff: Dict):
+        """Builds a colorized, formatted string for the diff and logs it."""
+        diff_lines = ["Found differences:"]
+
+        def add_lines(title, items, prefix, color):
+            if items:
+                diff_lines.append(f"  {color}{Style.BRIGHT}{title}:{Style.RESET_ALL}")
+                for item in items:
+                    if 'local_value' in item:  # This is a 'value_changed' item
+                        key = item['key']
+                        remote = item['remote_value']
+                        local = item['local_value']
+                        diff_lines.append(f"    {color}{prefix} {key}{Style.RESET_ALL}")
+                        diff_lines.append(f"      {Fore.RED}- {remote}{Style.RESET_ALL}")
+                        diff_lines.append(f"      {Fore.GREEN}+ {local}{Style.RESET_ALL}")
+                    else:
+                        key = item['key']
+                        diff_lines.append(f"    {color}{prefix} {key}{Style.RESET_ALL}")
         
-        # Perform the comparison with DeepDiff
-        diff = DeepDiff(remote_blueprint, local_blueprint, ignore_order=True, exclude_paths=exclude_paths)
+        add_lines("Added", formatted_diff.get('items_added_locally', []), "+", Fore.GREEN)
+        add_lines("Removed", formatted_diff.get('items_removed_locally', []), "-", Fore.RED)
+        add_lines("Modified", formatted_diff.get('values_changed', []), "~", Fore.YELLOW)
 
-        if not diff:
-            logger.info("No differences found between local and remote blueprints")
-            return None
+        # Log the entire block as a single message
+        logger.info("\n" + "\n".join(diff_lines))
 
-        # Format the differences into a more readable format
-        formatted_diff = self.format_diff_for_display(diff)
-        
-        if not formatted_diff:  # If no meaningful changes after filtering
-            logger.info("No meaningful changes found")
-            return None
-
-        logger.info("Found differences between local and remote blueprints:")
-
-        # Log added fields (dictionary_item_added)
-        if 'dictionary_item_added' in formatted_diff:
-            logger.info("Added fields:")
-            for item in formatted_diff['dictionary_item_added']:
-                logger.info(f"  + {item}")
-
-        # Log removed fields (dictionary_item_removed)
-        if 'dictionary_item_removed' in formatted_diff:
-            logger.info("Removed fields:")
-            for item in formatted_diff['dictionary_item_removed']:
-                logger.info(f"  - {item}")
-
-        # Log modified fields (values_changed)
-        if 'values_changed' in formatted_diff:
-            logger.info("Modified fields:")
-            for change in formatted_diff['values_changed']:
-                logger.info(f"  Field: {change['key']}")
-                logger.info(f"    - Remote: {change['remote_value']}")
-                logger.info(f"    + Local:  {change['local_value']}")
-
-        return formatted_diff
-
-
-
-    def check_recent_update(self, blueprint_metadata: Dict, force_update: bool = False) -> bool:
-        """Check if blueprint was recently updated in Port.io UI.
+    def _check_recent_update(self, blueprint_metadata: Dict) -> bool:
+        """
+        Check if blueprint was recently updated in Port.io UI.
 
         Args:
             blueprint_metadata: Blueprint metadata containing update timestamp
-            force_update: Whether to ignore recent updates
 
         Returns:
-            True if safe to update, False if recently modified
+            True if recently modified (within 24 hours), False otherwise.
         """
-        if force_update:
-            logger.info("Force update enabled, skipping recent update check")
-            return True
-        
         last_updated_str = blueprint_metadata.get('updatedAt')
         if not last_updated_str:
-            return True
+            return False
 
         last_updated = datetime.fromisoformat(last_updated_str.replace('Z', '+00:00'))
         time_difference = datetime.now(timezone.utc) - last_updated
         
-        if time_difference.total_seconds() < 86400:  # Less than 24 hours
-            logger.warning("Blueprint was updated in Port.io UI less than 24 hours ago")
-            return False
-        return True
+        return time_difference.total_seconds() < 86400
 
-    def process_blueprint_file(self, file_path: str, force_update: bool = False, skip_confirmation: bool = False) -> bool:
+    def process_blueprint_file(self, file_path: str, force_update: bool = False) -> Tuple[bool, Optional[str]]:
+        """
+        Processes a single blueprint file.
+
+        Args:
+            file_path: Path to the blueprint file.
+            force_update: If true, forces the update even if recently modified.
+
+        Returns:
+            A tuple containing:
+            - bool: Overall success of the operation for this file.
+            - str | None: A status string. Can be 'confirmation_required' if user
+                          interaction is needed, or None otherwise.
+        """
         logger.info("Processing blueprint file: %s", file_path)
         
         local_blueprint_data = self.load_blueprint_from_file(file_path)
         if not local_blueprint_data:
             self.has_failures = True
-            return False
+            return False, None
+
+        # Validate that all related entities exist before proceeding
+        if not self._check_related_entities_exist(local_blueprint_data):
+            self.has_failures = True
+            return False, None
 
         blueprint_id = local_blueprint_data.get('identifier')
         if not blueprint_id:
             logger.error("Missing required 'identifier' field in blueprint: %s", file_path)
             self.has_failures = True
-            return False
+            return False, None
 
         try:
-            try:
-                remote_blueprint = self.client.get_blueprint(blueprint_id)
-            except PortAPIError as e:
-                if "404" not in str(e):
-                    logger.error("Failed to check blueprint %s", blueprint_id)
-                    self.has_failures = True
-                    return False
-                remote_blueprint = None
-
-            if remote_blueprint:
-                # Blueprint exists, try to update it
-                diff = self.compare_blueprints(local_blueprint_data, remote_blueprint["blueprint"])
-                if not diff:
-                    logger.info("Blueprint '%s' is up to date", blueprint_id)
-                    return True
-
-                if not self.check_recent_update(remote_blueprint, force_update) and not skip_confirmation:
-                    user_input = input("Blueprint was recently updated in Port.io UI. Continue with update? (y/N): ")
-                    if user_input.lower() != 'y':
-                        logger.info("Update cancelled by user for blueprint: %s", blueprint_id)
-                        return True
-
-                try:
-                    logger.info("Updating blueprint: %s", blueprint_id)
-                    self.client.update_blueprint(blueprint_id, local_blueprint_data)
-                    logger.info("Successfully updated blueprint: %s", blueprint_id)
-                    return True
-                except PortAPIError as e:
-                    # For 404 errors during update, it's likely a related entity issue
-                    if "404" in str(e):
-                        logger.error("Failed to update blueprint %s - this might be due to missing related entities", blueprint_id)
-                        # Try to extract the missing entity name from the response
-                        if e.response_data:
-                            # First check validation errors
-                            validation_errors = e.response_data.get('validationErrors', [])
-                            for error in validation_errors:
-                                if isinstance(error, dict) and error.get('type') == 'ENTITY_NOT_FOUND':
-                                    missing_entity = error.get('entityIdentifier')
-                                    if missing_entity:
-                                        logger.error("Missing related blueprint: '%s'", missing_entity)
-                                        break
-                            else:
-                                # If not found in validation errors, check details field
-                                details = e.response_data.get('details', {})
-                                if details.get('resource') == 'Blueprint':
-                                    missing_entity = details.get('withValue')
-                                    if missing_entity and missing_entity != blueprint_id:
-                                        logger.error("Missing related blueprint: '%s'", missing_entity)
-                    else:
-                        logger.error("Failed to update blueprint %s: %s", blueprint_id, e.get_detailed_message())
-                    self.has_failures = True
-                    return False
-
-            else:
-                # Blueprint doesn't exist, try to create it
-                try:
-                    logger.info("Creating blueprint: %s", blueprint_id)
-                    self.client.create_blueprint(local_blueprint_data)
-                    logger.info("Successfully created blueprint: %s", blueprint_id)
-                    return True
-                except PortAPIConflictError as e:
-                    logger.error("Race condition detected for blueprint %s - please try again", blueprint_id)
-                    self.has_failures = True
-                    return False
-                except PortAPIError as e:
-                    # For 404 errors during create, it's likely a related entity issue
-                    if "404" in str(e):
-                        logger.error("Failed to create blueprint %s - this might be due to missing related entities", blueprint_id)
-                        # Try to extract the missing entity name from the response
-                        if e.response_data:
-                            # First check validation errors
-                            validation_errors = e.response_data.get('validationErrors', [])
-                            for error in validation_errors:
-                                if isinstance(error, dict) and error.get('type') == 'ENTITY_NOT_FOUND':
-                                    missing_entity = error.get('entityIdentifier')
-                                    if missing_entity:
-                                        logger.error("Missing related blueprint: '%s'", missing_entity)
-                                        break
-                            else:
-                                # If not found in validation errors, check details field
-                                details = e.response_data.get('details', {})
-                                if details.get('resource') == 'Blueprint':
-                                    missing_entity = details.get('withValue')
-                                    if missing_entity and missing_entity != blueprint_id:
-                                        logger.error("Missing related blueprint: '%s'", missing_entity)
-                    else:
-                        logger.error("Failed to create blueprint %s: %s", blueprint_id, e.get_detailed_message())
-                    self.has_failures = True
-                    return False
-
-        except Exception as e:
-            logger.error("Unexpected error while processing blueprint %s: %s", blueprint_id, str(e))
+            remote_blueprint_wrapper = self.client.get_blueprint(blueprint_id)
+        except PortAPIError as e:
+            logger.error("Failed to check blueprint %s: %s", blueprint_id, e.get_detailed_message())
             self.has_failures = True
-            return False
+            return False, None
+
+        if remote_blueprint_wrapper:
+            return self._update_blueprint(blueprint_id, local_blueprint_data, remote_blueprint_wrapper, force_update)
+        else:
+            return self._create_blueprint(blueprint_id, local_blueprint_data)
+
+    def _create_blueprint(self, blueprint_id: str, local_blueprint_data: Dict) -> Tuple[bool, None]:
+        """Handles the creation of a new blueprint."""
+        try:
+            logger.info("Creating blueprint: %s", blueprint_id)
+            self.client.create_blueprint(local_blueprint_data)
+            logger.info("Successfully created blueprint: %s", blueprint_id)
+            return True, None
+        except PortAPIConflictError:
+            logger.error("Race condition detected for blueprint %s - please try again", blueprint_id)
+            self.has_failures = True
+            return False, None
+        except PortAPIError as e:
+            logger.error("Failed to create blueprint %s: %s", blueprint_id, e.get_detailed_message())
+            self.has_failures = True
+            return False, None
+
+    def _update_blueprint(self, blueprint_id: str, local_blueprint_data: Dict, remote_blueprint_wrapper: Dict, force_update: bool) -> Tuple[bool, Optional[str]]:
+        """Handles the update of an existing blueprint."""
+        remote_blueprint = remote_blueprint_wrapper.get("blueprint", {})
+        diff = self.comparator.compare(local_blueprint_data, remote_blueprint)
+
+        if not diff:
+            logger.info("Blueprint '%s' is up to date", blueprint_id)
+            return True, None
+
+        formatted_diff = format_diff_for_display(diff)
+        self._log_diff(formatted_diff)
+        
+        if not force_update and self._check_recent_update(remote_blueprint):
+            logger.warning("Blueprint was updated in Port.io UI less than 24 hours ago. Use --force to override.")
+            return False, 'confirmation_required'
+
+        try:
+            logger.info("Updating blueprint: %s", blueprint_id)
+            self.client.update_blueprint(blueprint_id, local_blueprint_data)
+            logger.info("Successfully updated blueprint: %s", blueprint_id)
+            return True, None
+        except PortAPIError as e:
+            logger.error("Failed to update blueprint %s: %s", blueprint_id, e.get_detailed_message())
+            self.has_failures = True
+            return False, None

@@ -1,6 +1,6 @@
 {
     "identifier": "wizIssue",
-    "description": "This blueprint represents a wiz issue",
+    "description": "This blueprint represents a wiz issue 2.0",
     "title": "Wiz Issue",
     "icon": "Alert",
     "schema": {
@@ -137,18 +137,12 @@
     },
     "mirrorProperties": {},
     "calculationProperties": {},
+    "aggregationProperties": {},
     "relations": {
       "projects": {
         "target": "wizProject",
         "title": "Affected Projects",
         "description": "The projects affected by this issue",
-        "required": false,
-        "many": true
-      },
-      "serviceTickets": {
-        "target": "wizServiceTicket",
-        "title": "Service Tickets",
-        "description": "The service tickets belonging to this issue",
         "required": false,
         "many": true
       },

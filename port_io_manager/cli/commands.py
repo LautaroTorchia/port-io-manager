@@ -5,6 +5,7 @@ import argparse
 import sys
 from typing import List
 from dotenv import load_dotenv
+from colorama import Style
 from ..api.client import PortAPIClient
 from ..api.endpoints.blueprints import BlueprintClient
 from ..core.services import BlueprintService
@@ -75,18 +76,31 @@ def sync_blueprint_command(args: argparse.Namespace) -> None:
             logger.error("No valid JSON files found to process")
             sys.exit(1)
 
-        logger.info("Starting synchronization of %d blueprint(s)", len(json_files))
-        logger.info("--------------------------------------------------")
+        logger.info("Starting synchronization for %d blueprint(s)", len(json_files))
 
         for file_path in json_files:
-            service.process_blueprint_file(
+            logger.info(f"\n{Style.BRIGHT}--- Processing: {file_path} ---{Style.RESET_ALL}")
+            success, status = service.process_blueprint_file(
                 file_path, 
-                force_update=args.force,
-                skip_confirmation=args.no_prompt
+                force_update=args.force
             )
 
-        logger.info("Blueprint synchronization completed")
+            if status == 'confirmation_required':
+                if args.no_prompt:
+                    logger.warning("Skipping recently updated blueprint due to --no-prompt: %s", file_path)
+                    continue
+
+                user_input = input(f"Blueprint in {file_path} was recently updated. "
+                                   "Do you want to force the update? (y/N): ")
+                if user_input.lower() == 'y':
+                    logger.info("User approved force update for: %s", file_path)
+                    service.process_blueprint_file(file_path, force_update=True)
+                else:
+                    logger.info("Update for %s cancelled by user.", file_path)
+
+        logger.info(f"\n{Style.BRIGHT}--- Synchronization complete ---{Style.RESET_ALL}")
         if service.has_failures:
+            logger.error("One or more blueprints failed to synchronize.")
             sys.exit(1)
 
     except Exception as e:
@@ -124,7 +138,7 @@ def setup_sync_blueprint_parser(subparsers: argparse._SubParsersAction) -> None:
     sync_parser.add_argument(
         '--no-prompt',
         action='store_true',
-        help='Skip confirmation prompts'
+        help='Skip confirmation prompts for recently updated blueprints'
     )
     sync_parser.add_argument(
         '--debug',
