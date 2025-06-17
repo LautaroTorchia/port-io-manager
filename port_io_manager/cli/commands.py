@@ -111,23 +111,23 @@ def sync_blueprint_command(args: argparse.Namespace) -> None:
 
         for file_path in json_files:
             logger.info(f"\n{Style.BRIGHT}--- Processing: {file_path} ---{Style.RESET_ALL}")
+
+            # When --no-prompt is used (in CI/CD), we should force the update.
+            should_force = args.force or args.no_prompt
             success, status = service.process_blueprint_file(
                 file_path,
-                force_update=args.force,
+                force_update=should_force,
                 dry_run=args.dry_run
             )
 
             if status == 'confirmation_required':
-                if args.no_prompt:
-                    logger.warning("Skipping recently updated blueprint due to --no-prompt: %s", file_path)
-                    continue
-
+                # This block is only reached in interactive mode when a UI change is detected.
                 user_input = input(f"Blueprint in {file_path} was recently updated. "
                                    "Do you want to force the update? (y/N): ")
                 if user_input.lower() == 'y':
                     logger.info("User approved force update for: %s", file_path)
                     service.process_blueprint_file(
-                        file_path, 
+                        file_path,
                         force_update=True,
                         dry_run=args.dry_run
                     )
@@ -170,23 +170,21 @@ def sync_mapping_command(args: argparse.Namespace) -> None:
             success, status, change_data = service.process_mapping_file(
                 file_path=file_path,
                 dry_run=args.dry_run,
-                force=args.no_prompt
+                force=args.no_prompt or args.force
             )
 
             if status == 'confirmation_required':
-                if args.no_prompt:
-                    logger.warning(f"Applying changes without prompt for {file_path} due to --no-prompt.")
-                    service.apply_mapping_update(change_data["integration_id"], change_data["config"])
+                # This block is only reached in interactive mode.
+                # The --no-prompt check is redundant as it's handled by the `force` flag.
+                user_input = input(f"Differences found for mapping in {file_path}. "
+                                   "Do you want to apply the changes? (y/N): ")
+                if user_input.lower() == 'y':
+                    integration_id = change_data["integration_id"]
+                    config = change_data["config"]
+                    logger.info(f"User approved update for mapping '{integration_id}'.")
+                    service.apply_mapping_update(integration_id, config)
                 else:
-                    user_input = input(f"Differences found for mapping in {file_path}. "
-                                       "Do you want to apply the changes? (y/N): ")
-                    if user_input.lower() == 'y':
-                        integration_id = change_data["integration_id"]
-                        config = change_data["config"]
-                        logger.info(f"User approved update for mapping '{integration_id}'.")
-                        service.apply_mapping_update(integration_id, config)
-                    else:
-                        logger.info(f"Update for {file_path} cancelled by user.")
+                    logger.info(f"Update for {file_path} cancelled by user.")
 
         logger.info(f"\n{Style.BRIGHT}--- Synchronization complete ---{Style.RESET_ALL}")
         if service.has_failures:
@@ -225,22 +223,19 @@ def sync_scorecard_command(args: argparse.Namespace) -> None:
             success, status, change_data = service.process_scorecard_file(
                 file_path=file_path,
                 dry_run=args.dry_run,
-                force=args.no_prompt
+                force=args.no_prompt or args.force
             )
 
             if status == 'confirmation_required':
-                if args.no_prompt:
-                    logger.warning(f"Applying changes without prompt for {file_path} due to --no-prompt.")
+                # This block is only reached in interactive mode.
+                action = change_data.get('action', 'change')
+                user_input = input(f"A scorecard {action} is planned for {file_path}. "
+                                   "Do you want to apply this change? (y/N): ")
+                if user_input.lower() == 'y':
+                    logger.info(f"User approved {action} for scorecard in {file_path}.")
                     service.apply_scorecard_change(change_data)
                 else:
-                    action = change_data.get('action', 'change')
-                    user_input = input(f"A scorecard {action} is planned for {file_path}. "
-                                       "Do you want to apply this change? (y/N): ")
-                    if user_input.lower() == 'y':
-                        logger.info(f"User approved {action} for scorecard in {file_path}.")
-                        service.apply_scorecard_change(change_data)
-                    else:
-                        logger.info(f"Change for {file_path} cancelled by user.")
+                    logger.info(f"Change for {file_path} cancelled by user.")
 
         logger.info(f"\n{Style.BRIGHT}--- Synchronization complete ---{Style.RESET_ALL}")
         if service.has_failures:
@@ -335,6 +330,11 @@ def setup_sync_scorecard_parser(subparsers: argparse._SubParsersAction) -> None:
     source_group.add_argument(
         '-d', '--directory',
         help='Directory containing JSON files to process (recursive)'
+    )
+    scorecard_parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Force update, overwriting recent manual changes in the UI'
     )
     scorecard_parser.add_argument(
         '--dry-run',
