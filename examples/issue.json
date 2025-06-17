@@ -1,6 +1,6 @@
 {
     "identifier": "wizIssue",
-    "description": "This blueprint represents a wiz issue 2.0",
+    "description": "This blueprint represents a wiz issue 4.0",
     "title": "Wiz Issue",
     "icon": "Alert",
     "schema": {
@@ -9,10 +9,10 @@
           "type": "string",
           "title": "Issue URL",
           "format": "url",
-          "description": "the link to the issue"
+          "description": "the link to the issue ASD"
         },
         "status": {
-          "title": "Status",
+          "title": "Statuss",
           "type": "string",
           "enum": [
             "OPEN",

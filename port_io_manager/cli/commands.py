@@ -81,8 +81,9 @@ def sync_blueprint_command(args: argparse.Namespace) -> None:
         for file_path in json_files:
             logger.info(f"\n{Style.BRIGHT}--- Processing: {file_path} ---{Style.RESET_ALL}")
             success, status = service.process_blueprint_file(
-                file_path, 
-                force_update=args.force
+                file_path,
+                force_update=args.force,
+                dry_run=args.dry_run
             )
 
             if status == 'confirmation_required':
@@ -94,7 +95,11 @@ def sync_blueprint_command(args: argparse.Namespace) -> None:
                                    "Do you want to force the update? (y/N): ")
                 if user_input.lower() == 'y':
                     logger.info("User approved force update for: %s", file_path)
-                    service.process_blueprint_file(file_path, force_update=True)
+                    service.process_blueprint_file(
+                        file_path, 
+                        force_update=True,
+                        dry_run=args.dry_run
+                    )
                 else:
                     logger.info("Update for %s cancelled by user.", file_path)
 
@@ -133,7 +138,12 @@ def setup_sync_blueprint_parser(subparsers: argparse._SubParsersAction) -> None:
     sync_parser.add_argument(
         '--force',
         action='store_true',
-        help='Force update, ignoring last modification date'
+        help='Force update, overwriting recent manual changes in the UI'
+    )
+    sync_parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Preview the changes that would be applied without executing them'
     )
     sync_parser.add_argument(
         '--no-prompt',

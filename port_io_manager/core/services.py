@@ -123,13 +123,16 @@ class BlueprintService:
         
         return time_difference.total_seconds() < 86400
 
-    def process_blueprint_file(self, file_path: str, force_update: bool = False) -> Tuple[bool, Optional[str]]:
+    def process_blueprint_file(
+        self, file_path: str, force_update: bool = False, dry_run: bool = False
+    ) -> Tuple[bool, Optional[str]]:
         """
         Processes a single blueprint file.
 
         Args:
             file_path: Path to the blueprint file.
             force_update: If true, forces the update even if recently modified.
+            dry_run: If true, previews changes without applying them.
 
         Returns:
             A tuple containing:
@@ -155,6 +158,9 @@ class BlueprintService:
             self.has_failures = True
             return False, None
 
+        if dry_run:
+            logger.info(f"{Fore.CYAN}[DRY RUN] The tool is running in dry-run mode. No changes will be applied.{Style.RESET_ALL}")
+
         try:
             remote_blueprint_wrapper = self.client.get_blueprint(blueprint_id)
         except PortAPIError as e:
@@ -163,14 +169,20 @@ class BlueprintService:
             return False, None
 
         if remote_blueprint_wrapper:
-            return self._update_blueprint(blueprint_id, local_blueprint_data, remote_blueprint_wrapper, force_update)
+            return self._update_blueprint(blueprint_id, local_blueprint_data, remote_blueprint_wrapper, force_update, dry_run)
         else:
-            return self._create_blueprint(blueprint_id, local_blueprint_data)
+            return self._create_blueprint(blueprint_id, local_blueprint_data, dry_run)
 
-    def _create_blueprint(self, blueprint_id: str, local_blueprint_data: Dict) -> Tuple[bool, None]:
+    def _create_blueprint(self, blueprint_id: str, local_blueprint_data: Dict, dry_run: bool) -> Tuple[bool, None]:
         """Handles the creation of a new blueprint."""
+        logger.info(f"Blueprint '{blueprint_id}' does not exist remotely. Planning to create.")
+        
+        if dry_run:
+            logger.info(f"{Fore.GREEN}[DRY RUN] Blueprint '{blueprint_id}' will be created.{Style.RESET_ALL}")
+            return True, None
+
         try:
-            logger.info("Creating blueprint: %s", blueprint_id)
+            logger.info(f"Creating blueprint: {blueprint_id}")
             self.client.create_blueprint(local_blueprint_data)
             logger.info("Successfully created blueprint: %s", blueprint_id)
             return True, None
@@ -183,7 +195,9 @@ class BlueprintService:
             self.has_failures = True
             return False, None
 
-    def _update_blueprint(self, blueprint_id: str, local_blueprint_data: Dict, remote_blueprint_wrapper: Dict, force_update: bool) -> Tuple[bool, Optional[str]]:
+    def _update_blueprint(
+        self, blueprint_id: str, local_blueprint_data: Dict, remote_blueprint_wrapper: Dict, force_update: bool, dry_run: bool
+    ) -> Tuple[bool, Optional[str]]:
         """Handles the update of an existing blueprint."""
         remote_blueprint = remote_blueprint_wrapper.get("blueprint", {})
         diff = self.comparator.compare(local_blueprint_data, remote_blueprint)
@@ -196,11 +210,17 @@ class BlueprintService:
         self._log_diff(formatted_diff)
         
         if not force_update and self._check_recent_update(remote_blueprint):
-            logger.warning("Blueprint was updated in Port.io UI less than 24 hours ago. Use --force to override.")
+            logger.warning(
+                f"Remote blueprint '{blueprint_id}' was modified in the UI within the last 24 hours."
+            )
             return False, 'confirmation_required'
 
+        if dry_run:
+            logger.info(f"{Fore.YELLOW}[DRY RUN] Blueprint '{blueprint_id}' will be updated with the changes above.{Style.RESET_ALL}")
+            return True, None
+
         try:
-            logger.info("Updating blueprint: %s", blueprint_id)
+            logger.info(f"Updating blueprint: {blueprint_id}")
             self.client.update_blueprint(blueprint_id, local_blueprint_data)
             logger.info("Successfully updated blueprint: %s", blueprint_id)
             return True, None
