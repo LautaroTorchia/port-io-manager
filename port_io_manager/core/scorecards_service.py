@@ -104,12 +104,17 @@ class ScorecardService:
 
         logger.info("\n" + "\n".join(diff_lines))
 
-    def process_scorecard_file(self, file_path: str, dry_run: bool = False) -> None:
-        """Processes a single scorecard file, creating or updating it."""
+    def process_scorecard_file(
+        self, file_path: str, dry_run: bool = False, force: bool = False
+    ) -> Tuple[bool, Optional[str], Optional[Dict]]:
+        """
+        Processes a single scorecard file.
+        Returns a tuple: (success, status, data_for_apply).
+        """
         wrapper = self._load_scorecard_file(file_path)
         if not wrapper:
             self.has_failures = True
-            return
+            return False, "file_error", None
 
         blueprint_id = wrapper.get('blueprintIdentifier')
         local_scorecard = wrapper.get('scorecard')
@@ -117,19 +122,19 @@ class ScorecardService:
         if not blueprint_id or not local_scorecard:
             logger.error(f"File '{file_path}' is missing 'blueprintIdentifier' or 'scorecard' keys.")
             self.has_failures = True
-            return
-            
+            return False, "config_error", None
+
         scorecard_id = local_scorecard.get("identifier")
         if not scorecard_id:
             logger.error(f"Scorecard in '{file_path}' is missing its 'identifier'.")
             self.has_failures = True
-            return
-            
+            return False, "config_error", None
+
         logger.info(f"Processing scorecard '{scorecard_id}' for blueprint '{blueprint_id}'...")
 
         if not self._validate_scorecard_properties(blueprint_id, local_scorecard):
             self.has_failures = True
-            return
+            return False, "validation_error", None
 
         try:
             remote_scorecard_wrapper = self.scorecard_client.get_scorecard(blueprint_id, scorecard_id)
@@ -137,43 +142,72 @@ class ScorecardService:
         except PortAPIError as e:
             logger.error(f"Failed to fetch scorecard '{scorecard_id}' from blueprint '{blueprint_id}': {e}")
             self.has_failures = True
-            return
+            return False, "api_error", None
 
-        if remote_scorecard:
-            # UPDATE logic
+        change_data = {
+            "blueprint_id": blueprint_id,
+            "scorecard_id": scorecard_id,
+            "payload": local_scorecard,
+        }
 
-            # Normalize the remote object to only include keys present in the local one
+        if remote_scorecard: # UPDATE logic
             normalized_remote_scorecard = {
                 key: remote_scorecard.get(key) for key in local_scorecard.keys()
             }
-
             diff = DeepDiff(normalized_remote_scorecard, local_scorecard, ignore_order=True)
-            
+
             if not diff:
                 logger.info("No changes detected.")
-                return
-            
+                return True, "no_changes", None
+
             self._log_diff(diff)
+            change_data["action"] = "update"
+
             if dry_run:
                 logger.info(f"{Fore.CYAN}[DRY RUN] Scorecard will be updated.{Style.RESET_ALL}")
-                return
+                return True, "dry_run", None
             
-            try:
-                self.scorecard_client.update_scorecard(blueprint_id, scorecard_id, local_scorecard)
-                logger.info(f"Successfully updated scorecard '{scorecard_id}'.")
-            except PortAPIError as e:
-                logger.error(f"Failed to update scorecard '{scorecard_id}': {e}")
-                self.has_failures = True
-        else:
-            # CREATE logic
+            if not force:
+                return True, "confirmation_required", change_data
+            
+            return self.apply_scorecard_change(change_data)
+
+        else: # CREATE logic
             logger.info("Scorecard does not exist remotely. Planning to create.")
+            change_data["action"] = "create"
+
             if dry_run:
                 logger.info(f"{Fore.GREEN}[DRY RUN] Scorecard '{scorecard_id}' will be created.{Style.RESET_ALL}")
-                return
+                return True, "dry_run", None
+            
+            if not force:
+                return True, "confirmation_required", change_data
+            
+            return self.apply_scorecard_change(change_data)
 
-            try:
-                self.scorecard_client.create_scorecard(blueprint_id, local_scorecard)
+    def apply_scorecard_change(self, change_data: Dict) -> Tuple[bool, Optional[str], Optional[Dict]]:
+        """Applies a create or update action for a scorecard."""
+        action = change_data.get("action")
+        blueprint_id = change_data.get("blueprint_id")
+        scorecard_id = change_data.get("scorecard_id")
+        payload = change_data.get("payload")
+
+        try:
+            if action == "update":
+                logger.info(f"Applying update for scorecard '{scorecard_id}'...")
+                self.scorecard_client.update_scorecard(blueprint_id, scorecard_id, payload)
+                logger.info(f"Successfully updated scorecard '{scorecard_id}'.")
+                return True, "updated", None
+            elif action == "create":
+                logger.info(f"Applying create for scorecard '{scorecard_id}'...")
+                self.scorecard_client.create_scorecard(blueprint_id, payload)
                 logger.info(f"Successfully created scorecard '{scorecard_id}'.")
-            except PortAPIError as e:
-                logger.error(f"Failed to create scorecard '{scorecard_id}': {e}")
-                self.has_failures = True 
+                return True, "created", None
+            else:
+                logger.error(f"Invalid action '{action}' for scorecard '{scorecard_id}'.")
+                self.has_failures = True
+                return False, "internal_error", None
+        except PortAPIError as e:
+            logger.error(f"Failed to {action} scorecard '{scorecard_id}': {e}")
+            self.has_failures = True
+            return False, "api_error", None 

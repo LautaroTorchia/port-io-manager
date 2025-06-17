@@ -2,7 +2,7 @@
   "blueprintIdentifier": "example_service",
   "scorecard": {
     "identifier": "Ownership",
-    "title": "Ownership Total 2.0",
+    "title": "Ownership Total 3.0",
     "levels": [
       {
         "color": "paleBlue",

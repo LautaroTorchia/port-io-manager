@@ -167,10 +167,34 @@ def sync_mapping_command(args: argparse.Namespace) -> None:
 
         for file_path in yaml_files:
             logger.info(f"\n{Style.BRIGHT}--- Processing: {file_path} ---{Style.RESET_ALL}")
-            service.process_mapping_file(
+            success, status, desired_config = service.process_mapping_file(
                 file_path=file_path,
-                dry_run=args.dry_run
+                dry_run=args.dry_run,
+                force=args.no_prompt
             )
+
+            if status == 'confirmation_required':
+                if args.no_prompt:
+                    logger.warning(f"Applying changes without prompt for {file_path} due to --no-prompt.")
+                    service.apply_mapping_update(desired_config.get('integrationIdentifier'), desired_config)
+                else:
+                    user_input = input(f"Differences found for mapping in {file_path}. "
+                                       "Do you want to apply the changes? (y/N): ")
+                    if user_input.lower() == 'y':
+                        integration_id = desired_config.get('integrationIdentifier')
+                        # The desired_config from process_mapping_file no longer has the identifier
+                        # We need to re-fetch it from the loaded file to pass to the apply function.
+                        # This is a bit of a workaround. A better fix would be to pass it through.
+                        # For now, let's make it work.
+                        import yaml
+                        with open(file_path, 'r') as f:
+                            local_mapping = yaml.safe_load(f)
+                            integration_id = local_mapping.get('integrationIdentifier')
+
+                        logger.info(f"User approved update for mapping '{integration_id}'.")
+                        service.apply_mapping_update(integration_id, desired_config)
+                    else:
+                        logger.info(f"Update for {file_path} cancelled by user.")
 
         logger.info(f"\n{Style.BRIGHT}--- Synchronization complete ---{Style.RESET_ALL}")
         if service.has_failures:
@@ -206,10 +230,25 @@ def sync_scorecard_command(args: argparse.Namespace) -> None:
 
         for file_path in json_files:
             logger.info(f"\n{Style.BRIGHT}--- Processing file: {file_path} ---{Style.RESET_ALL}")
-            service.process_scorecard_file(
+            success, status, change_data = service.process_scorecard_file(
                 file_path=file_path,
-                dry_run=args.dry_run
+                dry_run=args.dry_run,
+                force=args.no_prompt
             )
+
+            if status == 'confirmation_required':
+                if args.no_prompt:
+                    logger.warning(f"Applying changes without prompt for {file_path} due to --no-prompt.")
+                    service.apply_scorecard_change(change_data)
+                else:
+                    action = change_data.get('action', 'change')
+                    user_input = input(f"A scorecard {action} is planned for {file_path}. "
+                                       "Do you want to apply this change? (y/N): ")
+                    if user_input.lower() == 'y':
+                        logger.info(f"User approved {action} for scorecard in {file_path}.")
+                        service.apply_scorecard_change(change_data)
+                    else:
+                        logger.info(f"Change for {file_path} cancelled by user.")
 
         logger.info(f"\n{Style.BRIGHT}--- Synchronization complete ---{Style.RESET_ALL}")
         if service.has_failures:
@@ -258,11 +297,6 @@ def setup_sync_blueprint_parser(subparsers: argparse._SubParsersAction) -> None:
         action='store_true',
         help='Skip confirmation prompts for recently updated blueprints'
     )
-    sync_parser.add_argument(
-        '--debug',
-        action='store_true',
-        help='Enable debug logging'
-    )
 
     sync_parser.set_defaults(func=sync_blueprint_command)
 
@@ -287,6 +321,11 @@ def setup_sync_mapping_parser(subparsers: argparse._SubParsersAction) -> None:
         action='store_true',
         help='Preview the changes that would be applied without executing them'
     )
+    mapping_parser.add_argument(
+        '--no-prompt',
+        action='store_true',
+        help='Skip confirmation prompts'
+    )
     mapping_parser.set_defaults(func=sync_mapping_command)
 
 def setup_sync_scorecard_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -309,6 +348,11 @@ def setup_sync_scorecard_parser(subparsers: argparse._SubParsersAction) -> None:
         '--dry-run',
         action='store_true',
         help='Preview the changes that would be applied without executing them'
+    )
+    scorecard_parser.add_argument(
+        '--no-prompt',
+        action='store_true',
+        help='Skip confirmation prompts'
     )
     scorecard_parser.set_defaults(func=sync_scorecard_command)
 
