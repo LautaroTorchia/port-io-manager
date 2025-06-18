@@ -63,8 +63,36 @@ resources:
           - blueprint: '"wizControl"'
             identifier: .id
             properties:
-              controlDescription: .controlDescription
+              controlDescription: .controlDescriptions
               resolutionRecommendation: .resolutionRecommendation
             title: .names
     selector:
       query: 'true'
+  - kind: control-group
+    port:
+      entity:
+        mappings:
+          - blueprint: '"wizControl2"'
+            identifier: .id
+            properties:
+              controlDescription: .controlDescriptions
+              resolutionRecommendation: .resolutionRecommendation
+            title: .names
+    selector:
+      query: 'true'
+  - kind: pull-request
+    selector:
+      query: .base.ref == 'main' and .state == 'closed'  # Track PRs merged into the main branch
+    port:
+      entity:
+        mappings:
+          identifier: .head.repo.name + '-' + (.id|tostring)
+          title: .head.repo.name + " Deployment"
+          blueprint: '"deployment"'
+          properties:
+            environment: '"Production"'  # Hardcoded value
+            createdAt: .merged_at
+            deploymentStatus: '"Success"' # Hardcoded value
+        relations:
+          pullRequest: .head.repo.name + (.id|tostring)
+          service: .head.repo.name

@@ -1,13 +1,16 @@
 import logging
 import yaml
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple, Any, List
+
 from deepdiff import DeepDiff
 from colorama import Fore, Style
 
 from ..api.client import PortAPIError
+# Asumo que esta importación es correcta para tu estructura de proyecto
 from ..api.endpoints.integrations import IntegrationClient
 
 logger = logging.getLogger(__name__)
+
 
 class MappingService:
     """Service for managing Port.io integration mappings."""
@@ -30,26 +33,6 @@ class MappingService:
             self.has_failures = True
             return None
 
-    def _format_diff_details(self, diff: DeepDiff, kind: str) -> list[str]:
-        """Formats the details of a deepdiff object for a specific kind."""
-        diff_lines = []
-        parsed_diff = diff.to_dict()
-
-        def clean_path(path_str):
-            """Cleans the deepdiff path for better readability."""
-            return path_str.replace("root", f"resources.{kind}").replace("['", ".").replace("']", "").replace("[", ".").replace("]", "")
-
-        if 'values_changed' in parsed_diff:
-            diff_lines.append(f"  {Fore.YELLOW}{Style.BRIGHT}Modified Resource Kind: '{kind}'{Style.RESET_ALL}")
-            for path, changes in parsed_diff['values_changed'].items():
-                diff_lines.append(f"    ~ {clean_path(path)}")
-                diff_lines.append(f"      {Fore.RED}- {changes['old_value']}{Style.RESET_ALL}")
-                diff_lines.append(f"      {Fore.GREEN}+ {changes['new_value']}{Style.RESET_ALL}")
-        
-        # Add more detailed handlers if needed for other change types
-        
-        return diff_lines
-
     def process_mapping_file(
         self, file_path: str, dry_run: bool = False, force: bool = False
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
@@ -60,7 +43,8 @@ class MappingService:
 
         integration_id = local_config.get('integrationIdentifier')
         if not integration_id:
-            logger.error(f"Mapping file '{file_path}' is missing 'integrationIdentifier'.")
+            logger.error(
+                f"Mapping file '{file_path}' is missing 'integrationIdentifier'.")
             self.has_failures = True
             return False, "config_error", None
 
@@ -72,33 +56,31 @@ class MappingService:
                 logger.error(f"Integration '{integration_id}' not found.")
                 self.has_failures = True
                 return False, "api_error", None
-            remote_config = remote_integration.get("integration", {}).get("config", {})
+            remote_config = remote_integration.get(
+                "integration", {}).get("config", {})
         except PortAPIError as e:
             logger.error(f"Failed to fetch integration '{integration_id}': {e}")
             self.has_failures = True
             return False, "api_error", None
 
-        # Build the desired state by updating remote config with local changes
         desired_config = remote_config.copy()
         desired_config.update(local_config)
-        # We pop 'integrationIdentifier' as it's our metadata, not part of Port's config schema
         desired_config.pop('integrationIdentifier', None)
 
-        # Compare the configurations
         diff = DeepDiff(remote_config, desired_config, ignore_order=True)
 
         if not diff:
             logger.info(f"No changes detected for integration '{integration_id}'.")
             return True, "no_changes", None
 
-        # Format and display the diff
         report_lines = self._format_diff(diff)
         logger.info("\n" + "\n".join(report_lines))
 
         if dry_run:
-            logger.info(f"\n{Fore.CYAN}[DRY RUN] Would apply changes to integration '{integration_id}'.{Style.RESET_ALL}")
+            logger.info(
+                f"\n{Fore.CYAN}[DRY RUN] Would apply changes to integration '{integration_id}'.{Style.RESET_ALL}")
             return True, "dry_run", None
-        
+
         change_data = {
             "integration_id": integration_id,
             "config": desired_config
@@ -107,108 +89,124 @@ class MappingService:
         if not force:
             return True, "confirmation_required", change_data
 
-        # If force is true, proceed with the update
-        success, status = self.apply_mapping_update(change_data["integration_id"], change_data["config"])
+        success, status = self.apply_mapping_update(
+            change_data["integration_id"], change_data["config"])
         return success, status, None
 
     def apply_mapping_update(self, integration_id: str, config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """Applies the configuration update to the integration."""
-        logger.info(f"Applying new configuration to integration '{integration_id}'...")
+        logger.info(
+            f"Applying new configuration to integration '{integration_id}'...")
         try:
             self.client.update_integration_config(integration_id, config)
-            logger.info(f"Successfully updated configuration for integration '{integration_id}'.")
+            logger.info(
+                f"Successfully updated configuration for integration '{integration_id}'.")
             return True, "updated"
         except PortAPIError as e:
             if e.status_code == 422:
-                # Extract validation errors from the response
-                validation_errors = e.response_data.get('validationErrors', []) if e.response_data else []
-                error_message = e.response_data.get('message', '') if e.response_data else ''
-                
-                # Check if the error is related to invalid resource kinds
-                if validation_errors:
-                    invalid_kinds = []
-                    for error in validation_errors:
-                        if 'kind' in error.lower():
-                            # Extract the kind from the error message
-                            kind_match = error.split("'")[1] if "'" in error else None
-                            if kind_match:
-                                invalid_kinds.append(kind_match)
-                    
-                    if invalid_kinds:
-                        logger.error(
-                            f"Failed to update integration '{integration_id}': "
-                            f"The following resource kinds are not supported by this integration: {', '.join(invalid_kinds)}"
-                        )
-                    else:
-                        logger.error(f"Failed to update integration '{integration_id}': {error_message}")
-                else:
-                    logger.error(f"Failed to update integration '{integration_id}': {error_message}")
-            else:
-                logger.error(f"Failed to update integration '{integration_id}': {e}")
+                logger.error(
+                    f"Failed to update integration '{integration_id}': 422 Error code, indicating that the integration is not supported for the given resource kind")
             self.has_failures = True
             return False, "api_error"
+
+    def _clean_diff_path(self, path_str: str) -> str:
+        """Cleans the deepdiff path for better readability."""
+        return path_str.replace("root", "config").replace("['", ".").replace("']", "").replace("[", ".").replace("]", "")
+
+    def _format_dict_recursively(self, data: Any, indent_level: int) -> List[str]:
+        """Recursively formats a dictionary or list for display."""
+        lines = []
+        indent = "  " * indent_level
+        if isinstance(data, dict):
+            # Comprobación de seguridad
+            if not data:
+                return []
+            for key, value in data.items():
+                if isinstance(value, (dict, list)):
+                    lines.append(f"{indent}{key}:")
+                    lines.extend(self._format_dict_recursively(
+                        value, indent_level + 1))
+                else:
+                    lines.append(f"{indent}{key}: {value}")
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, (dict, list)):
+                    lines.extend(self._format_dict_recursively(
+                        item, indent_level + 1))
+                else:
+                    lines.append(f"{indent}- {item}")
+        return lines
+
+    def _format_resource_block(self, resource_data: Dict[str, Any]) -> str:
+        """Formats a resource block for display safely."""
+        lines = []
+        kind = resource_data.get('kind', 'unknown')
+        lines.append(f"  Kind: {kind}")
+        
+        # Usar .get() para evitar KeyErrors y comprobar si es un diccionario
+        selector = resource_data.get('selector')
+        if isinstance(selector, dict):
+            lines.append("  Selector:")
+            lines.extend(self._format_dict_recursively(selector, 2))
+
+        port = resource_data.get('port')
+        if isinstance(port, dict):
+            lines.append("  Port Configuration:")
+            lines.extend(self._format_dict_recursively(port, 2))
+
+        return "\n".join(lines)
 
     def _format_diff(self, diff: DeepDiff) -> list[str]:
         """Formats the full diff for display."""
         report_lines = ["Found differences in mapping configuration:"]
         parsed_diff = diff.to_dict()
 
-        def clean_path(path_str):
-            return path_str.replace("root", "config").replace("['", ".").replace("']", "").replace("[", ".").replace("]", "")
+        # --- Handle ADDED items ---
+        if 'iterable_item_added' in parsed_diff:
+            added_items = parsed_diff['iterable_item_added']
+            # Comprobación de seguridad
+            if isinstance(added_items, dict):
+                report_lines.append(
+                    f"\n{Fore.GREEN}{Style.BRIGHT}Added Resources:{Style.RESET_ALL}")
+                for path, block in added_items.items():
+                    if 'resources' in path and isinstance(block, dict):
+                        report_lines.append(f"{Fore.GREEN}+ New Resource Block:{Style.RESET_ALL}")
+                        report_lines.append(self._format_resource_block(block))
+                    else:
+                        report_lines.append(f"{Fore.GREEN}+ Added: {self._clean_diff_path(path)}{Style.RESET_ALL}")
+                        lines = self._format_dict_recursively(block, 1)
+                        report_lines.extend(f"  {line}" for line in lines)
 
-        def format_resource_block(resource_data):
-            """Formats a resource block for display."""
-            lines = []
-            kind = resource_data.get('kind', 'unknown')
-            lines.append(f"    Kind: {kind}")
-            
-            # Format selector if present
-            if 'selector' in resource_data:
-                lines.append("    Selector:")
-                for key, value in resource_data['selector'].items():
-                    lines.append(f"      {key}: {value}")
-            
-            # Format port configuration if present
-            if 'port' in resource_data:
-                lines.append("    Port Configuration:")
-                port_config = resource_data['port']
-                if 'entity' in port_config:
-                    lines.append("      Entity:")
-                    entity_config = port_config['entity']
-                    if 'mappings' in entity_config:
-                        lines.append("        Mappings:")
-                        for mapping in entity_config['mappings']:
-                            lines.append("          - Blueprint: " + mapping.get('blueprint', 'N/A'))
-                            if 'identifier' in mapping:
-                                lines.append("            Identifier: " + mapping['identifier'])
-                            if 'properties' in mapping:
-                                lines.append("            Properties:")
-                                for prop, value in mapping['properties'].items():
-                                    lines.append(f"              {prop}: {value}")
-            
-            return "\n".join(lines)
+        # --- Handle REMOVED items ---
+        if 'iterable_item_removed' in parsed_diff:
+            removed_items = parsed_diff['iterable_item_removed']
+            # Comprobación de seguridad
+            if isinstance(removed_items, dict):
+                report_lines.append(
+                    f"\n{Fore.RED}{Style.BRIGHT}Removed Resources:{Style.RESET_ALL}")
+                for path, block in removed_items.items():
+                    if 'resources' in path and isinstance(block, dict):
+                        report_lines.append(f"{Fore.RED}- Removed Resource Block:{Style.RESET_ALL}")
+                        report_lines.append(self._format_resource_block(block))
+                    else:
+                        report_lines.append(f"{Fore.RED}- Removed: {self._clean_diff_path(path)}{Style.RESET_ALL}")
+                        lines = self._format_dict_recursively(block, 1)
+                        report_lines.extend(f"  {line}" for line in lines)
 
-        if 'dictionary_item_added' in parsed_diff:
-            report_lines.append(f"  {Fore.GREEN}{Style.BRIGHT}Added Resources:{Style.RESET_ALL}")
-            for path in parsed_diff['dictionary_item_added']:
-                # Extract the resource data from the diff
-                resource_data = diff.get('dictionary_item_added', {}).get(path, {})
-                if isinstance(resource_data, dict) and 'kind' in resource_data:
-                    report_lines.append(f"  + New Resource Block:")
-                    report_lines.append(format_resource_block(resource_data))
-                else:
-                    report_lines.append(f"  + Added: {clean_path(path)}")
-        
-        if 'dictionary_item_removed' in parsed_diff:
-            report_lines.append(f"  {Fore.RED}{Style.BRIGHT}Removed Resources:{Style.RESET_ALL}")
-            for path in parsed_diff['dictionary_item_removed']:
-                report_lines.append(f"  - Removed: {clean_path(path)}")
-        
+        # --- Handle MODIFIED values ---
         if 'values_changed' in parsed_diff:
-            report_lines.append(f"  {Fore.YELLOW}{Style.BRIGHT}Modified Resources:{Style.RESET_ALL}")
-            for path, changes in parsed_diff['values_changed'].items():
-                report_lines.append(f"  ~ Modified: {clean_path(path)}")
-                report_lines.append(f"    {Fore.RED}- {changes['old_value']}{Style.RESET_ALL}")
-                report_lines.append(f"    {Fore.GREEN}+ {changes['new_value']}{Style.RESET_ALL}")
+            changed_items = parsed_diff['values_changed']
+            # Comprobación de seguridad
+            if isinstance(changed_items, dict):
+                 report_lines.append(
+                    f"\n{Fore.YELLOW}{Style.BRIGHT}Modified Fields:{Style.RESET_ALL}")
+                 for path, changes in changed_items.items():
+                    cleaned_path = self._clean_diff_path(path)
+                    report_lines.append(f"  ~ {cleaned_path}")
+                    report_lines.append(f"    {Fore.RED}- {changes['old_value']}{Style.RESET_ALL}")
+                    report_lines.append(f"    {Fore.GREEN}+ {changes['new_value']}{Style.RESET_ALL}")
+        
+        # Puedes añadir manejadores para 'dictionary_item_added/removed' si son necesarios,
+        # siguiendo el mismo patrón de seguridad.
 
-        return report_lines 
+        return report_lines
