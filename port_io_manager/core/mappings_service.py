@@ -119,7 +119,32 @@ class MappingService:
             logger.info(f"Successfully updated configuration for integration '{integration_id}'.")
             return True, "updated"
         except PortAPIError as e:
-            logger.error(f"Failed to update integration '{integration_id}': {e}")
+            if e.status_code == 422:
+                # Extract validation errors from the response
+                validation_errors = e.response_data.get('validationErrors', []) if e.response_data else []
+                error_message = e.response_data.get('message', '') if e.response_data else ''
+                
+                # Check if the error is related to invalid resource kinds
+                if validation_errors:
+                    invalid_kinds = []
+                    for error in validation_errors:
+                        if 'kind' in error.lower():
+                            # Extract the kind from the error message
+                            kind_match = error.split("'")[1] if "'" in error else None
+                            if kind_match:
+                                invalid_kinds.append(kind_match)
+                    
+                    if invalid_kinds:
+                        logger.error(
+                            f"Failed to update integration '{integration_id}': "
+                            f"The following resource kinds are not supported by this integration: {', '.join(invalid_kinds)}"
+                        )
+                    else:
+                        logger.error(f"Failed to update integration '{integration_id}': {error_message}")
+                else:
+                    logger.error(f"Failed to update integration '{integration_id}': {error_message}")
+            else:
+                logger.error(f"Failed to update integration '{integration_id}': {e}")
             self.has_failures = True
             return False, "api_error"
 
@@ -131,19 +156,59 @@ class MappingService:
         def clean_path(path_str):
             return path_str.replace("root", "config").replace("['", ".").replace("']", "").replace("[", ".").replace("]", "")
 
+        def format_resource_block(resource_data):
+            """Formats a resource block for display."""
+            lines = []
+            kind = resource_data.get('kind', 'unknown')
+            lines.append(f"    Kind: {kind}")
+            
+            # Format selector if present
+            if 'selector' in resource_data:
+                lines.append("    Selector:")
+                for key, value in resource_data['selector'].items():
+                    lines.append(f"      {key}: {value}")
+            
+            # Format port configuration if present
+            if 'port' in resource_data:
+                lines.append("    Port Configuration:")
+                port_config = resource_data['port']
+                if 'entity' in port_config:
+                    lines.append("      Entity:")
+                    entity_config = port_config['entity']
+                    if 'mappings' in entity_config:
+                        lines.append("        Mappings:")
+                        for mapping in entity_config['mappings']:
+                            lines.append("          - Blueprint: " + mapping.get('blueprint', 'N/A'))
+                            if 'identifier' in mapping:
+                                lines.append("            Identifier: " + mapping['identifier'])
+                            if 'properties' in mapping:
+                                lines.append("            Properties:")
+                                for prop, value in mapping['properties'].items():
+                                    lines.append(f"              {prop}: {value}")
+            
+            return "\n".join(lines)
+
         if 'dictionary_item_added' in parsed_diff:
+            report_lines.append(f"  {Fore.GREEN}{Style.BRIGHT}Added Resources:{Style.RESET_ALL}")
             for path in parsed_diff['dictionary_item_added']:
-                report_lines.append(f"  {Fore.GREEN}+ Added: {clean_path(path)}{Style.RESET_ALL}")
+                # Extract the resource data from the diff
+                resource_data = diff.get('dictionary_item_added', {}).get(path, {})
+                if isinstance(resource_data, dict) and 'kind' in resource_data:
+                    report_lines.append(f"  + New Resource Block:")
+                    report_lines.append(format_resource_block(resource_data))
+                else:
+                    report_lines.append(f"  + Added: {clean_path(path)}")
         
         if 'dictionary_item_removed' in parsed_diff:
+            report_lines.append(f"  {Fore.RED}{Style.BRIGHT}Removed Resources:{Style.RESET_ALL}")
             for path in parsed_diff['dictionary_item_removed']:
-                report_lines.append(f"  {Fore.RED}- Removed: {clean_path(path)}{Style.RESET_ALL}")
+                report_lines.append(f"  - Removed: {clean_path(path)}")
         
         if 'values_changed' in parsed_diff:
+            report_lines.append(f"  {Fore.YELLOW}{Style.BRIGHT}Modified Resources:{Style.RESET_ALL}")
             for path, changes in parsed_diff['values_changed'].items():
-                report_lines.append(f"  {Fore.YELLOW}~ Modified: {clean_path(path)}{Style.RESET_ALL}")
+                report_lines.append(f"  ~ Modified: {clean_path(path)}")
                 report_lines.append(f"    {Fore.RED}- {changes['old_value']}{Style.RESET_ALL}")
                 report_lines.append(f"    {Fore.GREEN}+ {changes['new_value']}{Style.RESET_ALL}")
 
-        # You can add more handlers for list changes etc. if needed
         return report_lines 
