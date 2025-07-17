@@ -11,7 +11,7 @@ setup(
     author_email="info@craftech.io",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/craftech-io/port-io-manager",
+    url="https://github.com/Directa-24/port-io-iac",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 5 - Production/Stable",
