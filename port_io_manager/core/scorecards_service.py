@@ -45,18 +45,59 @@ class ScorecardService:
                 logger.error(f"Validation failed: Blueprint '{blueprint_id}' not found.")
                 return False
             
-            blueprint_properties = blueprint_wrapper.get("blueprint", {}).get("schema", {}).get("properties", {}).keys()
+            blueprint = blueprint_wrapper.get("blueprint", {})
             
+            # Collect all available properties from different sources
+            available_properties = set()
+            
+            # 1. Regular properties from schema
+            schema_properties = blueprint.get("schema", {}).get("properties", {})
+            available_properties.update(schema_properties.keys())
+            
+            # 2. Mirror properties
+            mirror_properties = blueprint.get("mirrorProperties", {})
+            available_properties.update(mirror_properties.keys())
+            
+            # 3. Calculation properties
+            calculation_properties = blueprint.get("calculationProperties", {})
+            available_properties.update(calculation_properties.keys())
+            
+            # 4. Aggregation properties
+            aggregation_properties = blueprint.get("aggregationProperties", {})
+            available_properties.update(aggregation_properties.keys())
+            
+            # 5. Relations (can be referenced directly in some conditions)
+            relations = blueprint.get("relations", {})
+            available_relations = set(relations.keys())
+            
+            # Validate properties and relations used in scorecard rules
             for rule in scorecard.get("rules", []):
                 for condition in rule.get("query", {}).get("conditions", []):
+                    # Check property-based conditions
                     prop = condition.get("property")
-                    if prop and not prop.startswith('$') and prop not in blueprint_properties:
+                    if prop and not prop.startswith('$') and prop not in available_properties:
                         logger.error(
                             f"Validation failed in scorecard '{scorecard.get('identifier')}': "
-                            f"Property '{prop}' does not exist in blueprint '{blueprint_id}'."
+                            f"Property '{prop}' does not exist in blueprint '{blueprint_id}'. "
+                            f"Available properties: {sorted(available_properties)}"
                         )
                         return False
+                    
+                    # Check relation-based conditions
+                    relation = condition.get("relation")
+                    if relation and relation not in available_relations:
+                        logger.error(
+                            f"Validation failed in scorecard '{scorecard.get('identifier')}': "
+                            f"Relation '{relation}' does not exist in blueprint '{blueprint_id}'. "
+                            f"Available relations: {sorted(available_relations)}"
+                        )
+                        return False
+            
+            logger.debug(f"Scorecard '{scorecard.get('identifier')}' validation passed. "
+                        f"Available properties: {len(available_properties)}, "
+                        f"Available relations: {len(available_relations)}")
             return True
+            
         except PortAPIError as e:
             logger.error(f"API error during scorecard validation for blueprint '{blueprint_id}': {e}")
             return False
